@@ -1,0 +1,7 @@
+{
+  "appId": "com.marthak.blastbloom",
+  "appName": "Blast Bloom",
+  "webDir": "www",
+  "backgroundColor": "#10082b",
+  "android": { "allowMixedContent": false }
+}
