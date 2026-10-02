@@ -47,8 +47,8 @@ class Renderer {
     const sx = (Math.random() - 0.5) * this.shake, sy = (Math.random() - 0.5) * this.shake;
     c.save(); c.translate(this.ox + sx, this.oy + sy); c.scale(this.k, this.k);
     // arena
-    this.rr(c, 0, 0, CFG.W, CFG.H, 18); c.fillStyle = 'rgba(0,0,0,0.22)'; c.fill();
-    c.lineWidth = 2; c.strokeStyle = 'rgba(255,255,255,0.22)'; c.stroke();
+    if (!opts.noArena) { this.rr(c, 0, 0, CFG.W, CFG.H, 18); c.fillStyle = 'rgba(0,0,0,0.22)'; c.fill();
+      c.lineWidth = 2; c.strokeStyle = 'rgba(255,255,255,0.22)'; c.stroke(); }
     if (s) {
       for (const p of s.pillars) this.pillar(c, p, world);
       const colors = skin.colors;
@@ -66,8 +66,17 @@ class Renderer {
       c.font = `900 ${p.size * sc}px system-ui, sans-serif`; c.lineWidth = 4; c.strokeStyle = 'rgba(0,0,0,0.5)'; c.strokeText(p.str, p.x, p.y); c.fillStyle = p.color; c.fillText(p.str, p.x, p.y);
     }
     c.globalAlpha = 1;
-    if (opts.ghost) { // aim preview ring
-      c.strokeStyle = 'rgba(255,255,255,0.5)'; c.setLineDash([6, 6]); c.lineWidth = 2; c.beginPath(); c.arc(opts.ghost.x, opts.ghost.y, opts.ghost.r, 0, 6.283); c.stroke(); c.setLineDash([]);
+    if (opts.hint) { // tutorial: pulsing target + finger
+      const k = (Math.sin(this.t * 5) + 1) / 2;
+      c.strokeStyle = '#fff'; c.globalAlpha = 0.5 + k * 0.4; c.lineWidth = 3; c.beginPath(); c.arc(opts.hint.x, opts.hint.y, 34 + k * 12, 0, 6.283); c.stroke(); c.globalAlpha = 1;
+      c.font = '34px system-ui'; c.textAlign = 'center'; c.fillText('👆', opts.hint.x + 6, opts.hint.y + 40 + k * 8);
+    }
+    if (opts.ghost) { // aim preview
+      const g = opts.ghost, a = 0.5 + 0.2 * Math.sin(this.t * 10);
+      c.fillStyle = 'rgba(255,255,255,0.10)'; c.beginPath(); c.arc(g.x, g.y, g.r, 0, 6.283); c.fill();
+      c.strokeStyle = g.bad ? 'rgba(255,100,100,0.9)' : 'rgba(255,255,255,' + a + ')'; c.setLineDash([7, 6]); c.lineWidth = 2.5; c.lineDashOffset = -this.t * 30;
+      c.beginPath(); c.arc(g.x, g.y, g.r, 0, 6.283); c.stroke(); c.setLineDash([]);
+      c.fillStyle = '#fff'; c.beginPath(); c.arc(g.x, g.y, 3, 0, 6.283); c.fill();
     }
     c.restore();
     if (s && s.frozen) { c.fillStyle = 'rgba(140,220,255,0.12)'; c.fillRect(0, 0, this.cw, this.ch); }

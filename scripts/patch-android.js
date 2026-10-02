@@ -4,7 +4,11 @@ const fs = require('fs'), p = 'android/app/src/main/AndroidManifest.xml';
 if (!fs.existsSync(p)) { console.log('No android project yet – run "npx cap add android" first'); process.exit(0); }
 let x = fs.readFileSync(p, 'utf8');
 const id = process.env.ADMOB_APP_ID || 'ca-app-pub-3940256099942544~3347511713';
+if (!x.includes('android.permission.VIBRATE')) x = x.replace('</manifest>', '    <uses-permission android:name="android.permission.VIBRATE"/>\n</manifest>');
 if (!x.includes('com.google.android.gms.ads.APPLICATION_ID')) {
   x = x.replace('</application>', `    <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="${id}"/>\n    </application>`);
-  fs.writeFileSync(p, x); console.log('Patched AdMob app id:', id);
+  console.log('Patched AdMob app id:', id);
 }
+if (!x.includes('screenOrientation')) x = x.replace('<activity', '<activity android:screenOrientation="portrait"');
+fs.writeFileSync(p, x);
+console.log('Manifest patched (portrait, vibrate, AdMob id)');

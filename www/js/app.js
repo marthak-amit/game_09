@@ -38,6 +38,7 @@ function refreshHome() {
   $('#homeStars').textContent = '★ ' + Save.totalStars();
   $('#dotDaily').classList.toggle('hidden', dailyState().claimed);
   $('#dotChal').classList.toggle('hidden', d.dailyChallenge.done === todayStr());
+  $('#dotSpin').classList.toggle('hidden', !(spinState().free));
   $('#dotQuest').classList.toggle('hidden', !quests().some(q => d.quest.p[q.id] >= q.target && !d.quest.claimed[q.id]));
 }
 function showHome() {
@@ -70,21 +71,29 @@ function refreshHud() {
 }
 
 /* ---------- input ---------- */
-cv.addEventListener('pointerdown', e => {
-  Sfx.init();
-  if (A.mode !== 'play' || A.paused || A.outcome === 'win') return;
-  const p = R.toLogical(e.clientX, e.clientY);
-  if (p.x < 0 || p.y < 0 || p.x > CFG.W || p.y > CFG.H) return;
-  if (A.tapsLeft <= 0) return;
+let aim = null;
+const tapRadius = () => CFG.tapRadius * (A.mega ? CFG.megaMul : 1);
+const canTap = () => A.mode === 'play' && !A.paused && !A.outcome && A.tapsLeft > 0;
+const inArena = p => p.x >= 0 && p.y >= 0 && p.x <= CFG.W && p.y <= CFG.H;
+function fireTap(p) {
+  if (!canTap() || !inArena(p)) return;
   if (A.s.pillars.some(q => Math.hypot(q.x - p.x, q.y - p.y) < q.r)) { Sfx.bad(); R.text(p.x, p.y, '✖', '#ff8a8a', 22); return; }
   A.tapsLeft--; A.tapsUsed++;
-  let rad = CFG.tapRadius;
-  if (A.mega) { rad *= CFG.megaMul; A.mega = false; Save.d.inv.mega--; Save.save(); }
+  const rad = tapRadius();
+  if (A.mega) { A.mega = false; Save.d.inv.mega--; Save.save(); }
   A.s.roots[A.tapsUsed] = 0; addExplosion(A.s, p.x, p.y, rad, 0, A.tapsUsed, 0);
   if (A.s.frozen) A.s.freezeUntilSettled = true;
   R.rings.push({ x: p.x, y: p.y, r: 8, life: 0.4, max: 0.4, color: world().accent }); Sfx.tap(); Sfx.buzz(12);
   $('#hint').classList.add('hidden'); refreshHud();
+}
+cv.addEventListener('pointerdown', e => {
+  Sfx.init(); Sfx.music();
+  if (!canTap()) return;
+  aim = R.toLogical(e.clientX, e.clientY); try { cv.setPointerCapture(e.pointerId); } catch (_) {}
 });
+cv.addEventListener('pointermove', e => { if (aim) aim = R.toLogical(e.clientX, e.clientY); });
+cv.addEventListener('pointerup', e => { if (!aim) return; const p = R.toLogical(e.clientX, e.clientY); aim = null; fireTap(p); });
+cv.addEventListener('pointercancel', () => { aim = null; });
 $('#powerbar').addEventListener('click', e => {
   const b = e.target.closest('.pw'); if (!b || A.mode !== 'play' || A.outcome === 'win') return;
   Sfx.click(); const k = b.dataset.pw, inv = Save.d.inv;
@@ -101,6 +110,8 @@ $('#btnPlay').onclick = () => { Sfx.init(); Sfx.click(); startLevel(Save.d.level
 $('#btnDaily').onclick = () => { Sfx.init(); Sfx.click(); showDaily(); };
 $('#btnChallenge').onclick = () => { Sfx.init(); Sfx.click(); showChallenge(); };
 $('#btnQuests').onclick = () => { Sfx.init(); Sfx.click(); showQuests(); };
+$('#btnSpin').onclick = () => { Sfx.init(); Sfx.click(); showSpin(); };
+$('#btnLevels').onclick = () => { Sfx.init(); Sfx.click(); showLevels(); };
 $('#btnShop').onclick = () => { Sfx.init(); Sfx.click(); showShop(); };
 $('#btnSettings').onclick = () => { Sfx.init(); Sfx.click(); showSettings(); };
 $('#hudCoins').onclick = () => showShop(); $('#homeCoins').onclick = () => showShop();
@@ -123,20 +134,25 @@ function finishWin() {
   else { const key = def.n; if ((d.stars[key] || 0) < stars) d.stars[key] = stars; if (d.level === def.n) d.level++; }
   d.stats.wins++; d.stats.bestChain = Math.max(d.stats.bestChain, A.bestChain); d.finished++;
   questProg('win', 1); questProg('chain', A.bestChain, true);
+  let chest = '';
+  if (!def.daily && def.n % 10 === 0 && !d.chests.includes(def.n)) {
+    d.chests.push(def.n); coins += 150; for (const k in d.inv) d.inv[k] += 1;
+    chest = `<div class="stat"><span>🎁 World chest</span><span>+150🪙 +1 each power-up</span></div>`;
+  }
   A.reward = coins; addCoins(coins); Save.save(); Sfx.win(); Sfx.buzz(40);
   modal(`<h2>${def.daily ? 'Challenge Complete!' : 'Level Cleared!'}</h2>
     <div class="stars">${[1, 2, 3].map(i => `<span class="s ${i <= stars ? 'on' : ''}" style="animation-delay:${i * 0.25}s">★</span>`).join('')}</div>
     <div class="stat"><span>Taps used</span><span>${A.tapsUsed} / par ${par}</span></div>
     <div class="stat"><span>Best chain</span><span>${A.bestChain} 🔥</span></div>
     <div class="stat"><span>Score</span><span>${A.score}</span></div>
-    <div class="stat"><span>Coins</span><span>+${coins} 🪙</span></div>
+    <div class="stat"><span>Coins</span><span>+${coins} 🪙</span></div>${chest}
     <div class="col"><button class="btn primary" data-act="next">${def.daily ? 'Home' : 'Next Level ▶'}</button>
     <button class="btn ad" data-act="double" id="dbl">▶ Double coins (+${coins})</button>
     <div class="row"><button class="btn ghost" data-act="restart">Replay</button><button class="btn ghost" data-act="share">Share</button></div></div>`);
 }
 function finishLose() {
   Sfx.lose(); const left = aliveCount(A.s);
-  modal(`<h2>Out of taps!</h2><p>${left} orb${left > 1 ? 's' : ''} left. So close!</p>
+  modal(`<h2>Out of taps!</h2><p>${left} orb${left > 1 ? 's' : ''} left. ${left <= 3 ? 'So close!' : 'Give it another go!'}</p>
     <div class="col">${A.continued ? '' : `<button class="btn ad" data-act="cont">▶ Watch ad: +2 taps</button>
     <button class="btn" data-act="contCoin">+2 taps · 🪙 ${CFG.powerCost.tap * 2}</button>`}
     <button class="btn primary" data-act="restart">Try again</button><button class="btn ghost" data-act="home">Home</button></div>`);
@@ -145,7 +161,10 @@ function continueRun() { closeModal(); A.continued = true; A.tapsLeft += 2; A.ex
 
 const ACT = {
   resume() { closeModal(); A.paused = false; },
-  restart() { A.def ? startLevel(A.def.n, A.dailyKey) : startLevel(Save.d.level); },
+  async restart() {
+    if (A.outcome === 'lose-shown' && A.def && !A.def.daily) { closeModal(); await Ads.interstitial(A.def.n); }
+    A.def ? startLevel(A.def.n, A.dailyKey) : startLevel(Save.d.level);
+  },
   home() { showHome(); },
   async next() {
     if (A.def && A.def.daily) return showHome();
@@ -188,6 +207,22 @@ const ACT = {
     if (!Save.d.skins.includes(k)) { if (!spend(SKINS[k].cost)) return; Save.d.skins.push(k); }
     Save.d.skin = k; Save.save(); showShop();
   },
+  lvl(n) { startLevel(+n); },
+  async spin(a, b) {
+    const sp = spinState(); const viaAd = !sp.free;
+    if (viaAd && sp.ads >= 3) return toast('No more spins today');
+    b.disabled = true;
+    if (viaAd) { if (!(await Ads.rewarded())) { b.disabled = false; return; } Save.d.spin.ads++; } else Save.d.spin.free = false;
+    Save.save();
+    const tot = WHEEL.reduce((x, w) => x + w.w, 0); let r = Math.random() * tot, i = 0;
+    for (; i < WHEEL.length; i++) { if ((r -= WHEEL[i].w) < 0) break; }
+    i = Math.min(i, WHEEL.length - 1);
+    const seg = 360 / WHEEL.length, ang = 360 * 6 + (360 - (i * seg + seg / 2));
+    const el = $('#wheel'); el.style.transition = 'transform 4s cubic-bezier(.12,.7,.1,1)'; el.style.transform = `rotate(${ang}deg)`;
+    let n = 0; const tk = setInterval(() => { Sfx.tone(500 + (n++ % 6) * 40, 0.04, 'square', 0.05); }, 140); setTimeout(() => clearInterval(tk), 3900);
+    setTimeout(() => { grantReward(WHEEL[i]); Sfx.win(); refreshHome(); toast('You won ' + drLabel(WHEEL[i]) + '!'); showSpin(true); }, 4200);
+  },
+  tmusic() { Save.d.music = !Save.d.music; Save.save(); if (Save.d.music) Sfx.music(); else Sfx.music(false); showSettings(); },
   tsound() { Save.d.sound = !Save.d.sound; Save.save(); showSettings(); }, tvib() { Save.d.vib = !Save.d.vib; Save.save(); showSettings(); },
   restore() { toast('Purchases restored (if any)'); },
   reset() { if (confirm('Erase ALL progress?')) { localStorage.removeItem(CFG.saveKey); Save.load(); showHome(); } }
@@ -207,6 +242,22 @@ function showDaily() {
    <div class="col">${st.claimed ? '<button class="btn" disabled>Claimed ✓ – see you tomorrow</button>' :
     `<button class="btn primary" data-act="claim">Claim ${drLabel(DR[st.idx])}</button><button class="btn ad" data-act="claim" data-a="x2">▶ Claim 2×</button>`}
    <button class="btn ghost" data-act="close">Close</button></div>`);
+}
+const WHEEL = [{ c: 30, w: 22 }, { p: 'mega', n: 1, w: 12 }, { c: 60, w: 18 }, { p: 'freeze', n: 1, w: 12 }, { c: 100, w: 10 }, { p: 'tap', n: 1, w: 12 }, { c: 250, w: 3 }, { c: 50, w: 11 }];
+function spinState() { const sp = Save.d.spin, t = todayStr(); if (sp.date !== t) { sp.date = t; sp.free = true; sp.ads = 0; Save.save(); } return sp; }
+function showSpin(keep) {
+  const sp = spinState(), seg = 360 / WHEEL.length, cols = ['#ff6b9d', '#7bed9f', '#ffb347', '#70a1ff', '#c56cf0', '#ffe66d', '#ff595e', '#48cae4'];
+  const grad = WHEEL.map((w, i) => `${cols[i]} ${i * seg}deg ${(i + 1) * seg}deg`).join(',');
+  const labels = WHEEL.map((w, i) => `<span class="wl" style="transform:rotate(${i * seg + seg / 2}deg) translateY(-92px)">${w.c ? w.c : ''}${w.c && w.p ? '+' : ''}${w.p ? PW_ICON[w.p] : (w.c ? '🪙' : '')}</span>`).join('');
+  const html = `<h2>🎡 Lucky Spin</h2><p>${sp.free ? 'Your free daily spin is ready!' : sp.ads < 3 ? 'Watch an ad for another spin (' + (3 - sp.ads) + ' left today)' : 'Come back tomorrow!'}</p>
+   <div class="wheelwrap"><div class="ptr">▼</div><div id="wheel" style="background:conic-gradient(${grad})">${labels}<div class="hub">GO</div></div></div>
+   <div class="col"><button class="btn ${sp.free ? 'primary' : 'ad'}" data-act="spin" ${(!sp.free && sp.ads >= 3) ? 'disabled' : ''}>${sp.free ? 'SPIN FREE' : '▶ Watch ad & spin'}</button><button class="btn ghost" data-act="close">Close</button></div>`;
+  modal(html);
+}
+function showLevels() {
+  const cur = Save.d.level, from = Math.max(1, cur - 29), items = [];
+  for (let n = cur; n >= from; n--) { const st = Save.d.stars[n] || 0; items.push(`<button class="lv ${n === cur ? 'cur' : ''}" data-act="lvl" data-a="${n}"><b>${n}</b><span>${[1, 2, 3].map(i => i <= st ? '★' : '☆').join('')}</span></button>`); }
+  modal(`<h2>Levels</h2><p>Replay a level to earn 3 ★ and more coins.</p><div class="lvgrid">${items.join('')}</div><div class="col"><button class="btn ghost" data-act="close">Close</button></div>`);
 }
 function showChallenge() {
   const done = Save.d.dailyChallenge.done === todayStr(), n = 20 + (dayNum() % 30);
@@ -238,6 +289,7 @@ function showSettings() {
   const d = Save.d;
   modal(`<h2>Settings</h2><div class="list">
    <div class="switch">Sound<button class="btn ${d.sound ? 'primary' : 'ghost'}" data-act="tsound">${d.sound ? 'ON' : 'OFF'}</button></div>
+   <div class="switch">Music<button class="btn ${d.music ? 'primary' : 'ghost'}" data-act="tmusic">${d.music ? 'ON' : 'OFF'}</button></div>
    <div class="switch">Vibration<button class="btn ${d.vib ? 'primary' : 'ghost'}" data-act="tvib">${d.vib ? 'ON' : 'OFF'}</button></div>
    <div class="switch">Restore purchases<button class="btn ghost" data-act="restore">Restore</button></div>
    <div class="switch">Reset progress<button class="btn ghost" data-act="reset">Reset</button></div></div>
@@ -283,14 +335,27 @@ function frame(now) {
   const ts = now < A.slowUntil ? 0.35 : 1; acc += dt * ts;
   while (acc >= 1 / 60) { simulate(1 / 60); acc -= 1 / 60; }
   R.update(dt);
-  R.draw(A.mode === 'home' ? A.home : A.s, A.mode === 'home' ? worldFor(Save.d.level) : A.def.world, skin());
+  const opts = { noArena: A.mode === 'home' };
+  if (A.mode === 'play' && aim && canTap()) opts.ghost = { x: aim.x, y: aim.y, r: tapRadius(), bad: !inArena(aim) || A.s.pillars.some(q => Math.hypot(q.x - aim.x, q.y - aim.y) < q.r) };
+  if (A.mode === 'play' && A.def && !A.def.daily && A.def.n === 1 && A.tapsUsed === 0 && !A.paused) {
+    const al = A.s.orbs.filter(o => o.alive); let cx = 0, cy = 0; for (const o of al) { cx += o.x; cy += o.y; }
+    if (al.length) opts.hint = { x: cx / al.length, y: cy / al.length };
+  }
+  R.draw(A.mode === 'home' ? A.home : A.s, A.mode === 'home' ? worldFor(Save.d.level) : A.def.world, skin(), opts);
   requestAnimationFrame(frame);
 }
 window.addEventListener('resize', () => R.resize());
 window.addEventListener('orientationchange', () => setTimeout(() => R.resize(), 200));
-document.addEventListener('visibilitychange', () => { if (document.hidden && A.mode === 'play' && !A.paused && !A.outcome) $('#btnPause').click(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) pauseNow(); else Sfx.music(); });
 
-Save.load(); Ads.init();
+function onBack(exit) {
+  if (!$('#modal').classList.contains('hidden')) { if (A.mode === 'play' && A.outcome !== 'win-shown' && A.outcome !== 'lose-shown') { ACT.resume(); } else if (A.mode === 'play') ACT.home(); else closeModal(); return; }
+  if (A.mode === 'play') return $('#btnPause').click();
+  exit();
+}
+function pauseNow() { if (A.mode === 'play' && !A.paused && !A.outcome) $('#btnPause').click(); Sfx.music(false); }
+Save.load(); Ads.init(); nativeLifecycle(pauseNow, onBack);
+if ('serviceWorker' in navigator && !Native && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
 R.resize(); resetAttract(); refreshHome(); requestAnimationFrame(frame);
 if (!dailyState().claimed && Save.d.finished >= 1) setTimeout(showDaily, 500);
 window.__A = A; // debug hook

@@ -4,7 +4,7 @@ const Save = {
     return {
       level: 1, stars: {}, coins: 100, inv: { mega: 1, freeze: 1, tap: 1 },
       skin: 'candy', skins: ['candy'], noAds: false, starter: false,
-      sound: true, vib: true,
+      sound: true, music: true, vib: true, spin: { date: '', free: false, ads: 0 }, chests: [],
       daily: { last: '', streak: 0 }, dailyChallenge: { done: '' },
       quest: { date: '', p: { pop: 0, win: 0, chain: 0 }, claimed: {} },
       adCoins: { date: '', n: 0 },
@@ -16,7 +16,7 @@ const Save = {
     try {
       const raw = JSON.parse(localStorage.getItem(CFG.saveKey) || 'null');
       this.d = raw ? Object.assign(base, raw) : base;
-      for (const k of ['inv', 'daily', 'dailyChallenge', 'quest', 'adCoins', 'stats']) this.d[k] = Object.assign(base[k], this.d[k]);
+      for (const k of ['inv', 'daily', 'dailyChallenge', 'quest', 'adCoins', 'stats', 'spin']) this.d[k] = Object.assign(base[k], this.d[k]);
     } catch (e) { this.d = base; }
     return this.d;
   },

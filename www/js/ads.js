@@ -1,12 +1,24 @@
 /* Monetisation adapter. In a browser it uses a fake "test ad" overlay; inside the Capacitor
    Android app it calls the AdMob plugin (@capacitor-community/admob). */
 const Native = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+/* Native app lifecycle: pause when backgrounded, handle Android back button. */
+function nativeLifecycle(onPause, onBack) {
+  const App = window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.App;
+  if (!App) return;
+  App.addListener('appStateChange', st => { if (!st.isActive) onPause(); });
+  App.addListener('backButton', () => onBack(() => App.exitApp()));
+}
 const Ads = {
   last: 0, count: 0, ready: false,
   async init() {
     if (!Native) return;
     try {
       const A = Capacitor.Plugins.AdMob;
+      // GDPR/UMP consent (required for EU/UK users before personalised ads)
+      try {
+        const info = await A.requestConsentInfo();
+        if (info.isConsentFormAvailable && info.status === 'REQUIRED') await A.showConsentForm();
+      } catch (e) { console.warn('consent', e); }
       await A.initialize({ initializeForTesting: CFG.ads.testing });
       this.ready = true;
     } catch (e) { console.warn('AdMob init failed', e); }

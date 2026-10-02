@@ -25,5 +25,32 @@ const Sfx = {
   coin() { this.tone(988, 0.08, 'square', 0.07); setTimeout(() => this.tone(1319, 0.14, 'square', 0.07), 70); },
   win() { [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => this.tone(f, 0.28, 'triangle', 0.18), i * 110)); },
   lose() { [392, 330, 262].forEach((f, i) => setTimeout(() => this.tone(f, 0.3, 'sawtooth', 0.09, 0.9), i * 150)); },
-  buzz(ms) { if (Save.d.vib && navigator.vibrate) { try { navigator.vibrate(ms); } catch (e) {} } }
+  buzz(ms) {
+    if (!Save.d.vib) return;
+    try {
+      const H = window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.Haptics;
+      if (H) H.impact({ style: ms > 25 ? 'MEDIUM' : 'LIGHT' }); else if (navigator.vibrate) navigator.vibrate(ms);
+    } catch (e) {}
+  },
+  /* soft generative ambient music: slow pentatonic pad + sparse plucks */
+  musicOn: false, mt: null, step: 0,
+  music(on) {
+    if (on === undefined) on = Save.d.music;
+    if (!on || !Save.d.music) { clearInterval(this.mt); this.mt = null; return; }
+    if (!this.ctx || this.mt) return;
+    const chords = [[0, 4, 7], [-3, 0, 4], [-5, -1, 2], [-7, -3, 0]], sc = [0, 2, 4, 7, 9, 12, 14];
+    const play = (semi, dur, vol, type) => {
+      const c = this.ctx, t = c.currentTime, o = c.createOscillator(), g = c.createGain(), f = 220 * Math.pow(2, semi / 12);
+      o.type = type; o.frequency.value = f; g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + dur * 0.3); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(this.musicGain || this.master); o.start(t); o.stop(t + dur + 0.05);
+    };
+    if (!this.musicGain) { this.musicGain = this.ctx.createGain(); this.musicGain.gain.value = 0.35; this.musicGain.connect(this.master); }
+    this.mt = setInterval(() => {
+      if (document.hidden || !Save.d.music) return;
+      const bar = Math.floor(this.step / 8) % 4, ch = chords[bar];
+      if (this.step % 8 === 0) ch.forEach(n => play(n, 4.2, 0.05, 'sine'));
+      if (this.step % 2 === 0 && Math.random() < 0.7) play(ch[0] + 12 + sc[Math.floor(Math.random() * sc.length)], 1.4, 0.035, 'triangle');
+      this.step++;
+    }, 520);
+  }
 };

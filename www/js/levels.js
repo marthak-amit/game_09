@@ -82,15 +82,16 @@ function genLevel(n, dailyKey) {
   const key = dailyKey ? 'd' + dailyKey : 'l' + n;
   if (_lvlCache[key]) return _lvlCache[key];
   const eff = dailyKey ? Math.max(n, 14) : n;
-  const maxPar = Math.min(2 + Math.floor(eff / 5), 9);
-  let def, par = 99;
-  for (let att = 0; att < 8; att++) {
+  const maxPar = dailyKey ? Math.min(2 + Math.floor(eff / 5), 9) : n <= 3 ? 1 : Math.min(2 + Math.floor(eff / 5), 9);
+  let def, par = 99, bestDef = null, bestPar = 99;
+  for (let att = 0; att < 10; att++) {
     const seed = hashStr(key) + att * 7919;
     def = genRaw(n, seed, !!dailyKey);
     par = solve(def, seed);
+    if (par < bestPar) { bestPar = par; bestDef = def; }
     if (par <= maxPar) break;
   }
-  if (par > maxPar) par = maxPar;
+  def = bestDef; par = Math.min(bestPar, Math.max(maxPar, bestPar > 9 ? 9 : bestPar));
   const slack = eff < 10 ? 2 : 1;
   def.n = n; def.par = par; def.taps = par + slack; def.world = worldFor(n); def.daily = !!dailyKey;
   return (_lvlCache[key] = def);

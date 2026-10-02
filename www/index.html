@@ -6,6 +6,8 @@
 <meta name="theme-color" content="#1a0b3d">
 <title>Blast Bloom</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%2714%27 fill=%27%23ff6b9d%27/%3E%3Ccircle cx=%2711%27 cy=%2714%27 r=%273%27 fill=%27%23fff%27/%3E%3Ccircle cx=%2721%27 cy=%2714%27 r=%273%27 fill=%27%23fff%27/%3E%3C/svg%3E">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -38,9 +40,10 @@
     <div class="tag">Tap. Chain. Bloom.</div>
     <div class="home-mid">
       <button class="btn primary big" id="btnPlay"><small id="homeWorld">Candy Meadow</small>PLAY<small>Level <b id="homeLevel">1</b></small></button>
-      <div class="starline" id="homeStars">★ 0</div>
+      <button class="btn ghost" id="btnLevels" style="padding:8px 18px;font-size:14px"><span id="homeStars">★ 0</span> · Levels</button>
     </div>
     <div class="home-row">
+      <button class="tile" id="btnSpin"><i>🎡</i>Spin<em id="dotSpin" class="dot hidden">!</em></button>
       <button class="tile" id="btnDaily"><i>📅</i>Daily<em id="dotDaily" class="dot hidden">!</em></button>
       <button class="tile" id="btnChallenge"><i>🏆</i>Challenge<em id="dotChal" class="dot hidden">!</em></button>
       <button class="tile" id="btnQuests"><i>🎯</i>Quests<em id="dotQuest" class="dot hidden">!</em></button>
