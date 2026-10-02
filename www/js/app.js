@@ -2,7 +2,7 @@
 import { ChessScene } from './scene.js';
 import { Sfx } from './audio.js';
 import { Save } from './storage.js';
-import { CFG, BOARDS, PIECE_COLORS, TIMES } from './config.js';
+import { CFG, BOARDS, BGS, PIECE_COLORS, TIMES } from './config.js';
 import { Ads, IAP, Native, bus, nativeLifecycle } from './ads.js';
 
 const E = window.ChessEngine;
@@ -14,27 +14,40 @@ const GL = {
 };
 const NAMES = { royal: { p: 'Soldier', n: 'Horse', b: 'Camel', r: 'Elephant', q: 'Queen', k: 'King' }, staunton: { p: 'Pawn', n: 'Knight', b: 'Bishop', r: 'Rook', q: 'Queen', k: 'King' } };
 const TCH = ' pnbrqk';
+const PINFO = {
+  royal: { p: ['♟\uFE0E', 'Soldier (Pawn)', 'Steps forward 1 (2 from its start square) and captures diagonally.'], n: ['🐴', 'Horse (Knight)', 'Leaps in an L-shape and can jump over other pieces.'], b: ['🐪', 'Camel (Bishop)', 'Moves any distance diagonally.'], r: ['🐘', 'Elephant (Rook)', 'Marches any distance in a straight line.'], q: ['♛\uFE0E', 'Queen', 'Moves any distance in a straight line or diagonally – the strongest piece.'], k: ['♚\uFE0E', 'King', 'Steps one square in any direction. Keep it safe!'] },
+  staunton: { p: ['♟\uFE0E', 'Pawn', 'Steps forward 1 (2 from its start square) and captures diagonally.'], n: ['♞\uFE0E', 'Knight', 'Jumps in an L-shape and can hop over other pieces.'], b: ['♝\uFE0E', 'Bishop', 'Moves any distance diagonally.'], r: ['♜\uFE0E', 'Rook', 'Moves any distance in a straight line.'], q: ['♛\uFE0E', 'Queen', 'Moves any distance in a straight line or diagonally – the strongest piece.'], k: ['♚\uFE0E', 'King', 'Steps one square in any direction. Keep it safe!'] }
+};
+let pinfoT;
+function showPieceInfo(sq) {
+  const pc = G.board.b[sq]; if (!pc) return hidePieceInfo(); const t = TCH[pc & 7], c = pc >> 3, [g, name, desc] = PINFO[Save.d.set][t];
+  const el = $('#pinfo'); el.className = 'pinfo ' + (c ? 'b' : 'w'); el.innerHTML = `<div class="pg2">${g}</div><div><b>${name} · ${c ? 'Black' : 'White'}</b><span>${desc}</span></div>`;
+  clearTimeout(pinfoT); pinfoT = setTimeout(hidePieceInfo, 4200);
+}
+function hidePieceInfo() { $('#pinfo').classList.add('hidden'); }
 const glyph = t => GL[Save.d.set][t];
 
 /* ---------- boot ---------- */
 Save.load();
+for (const [k, v] of Object.entries(BOARDS)) if (!v.cost && !Save.d.boards.includes(k)) Save.d.boards.push(k);
 bus.toast = toast;
 const scene = new ChessScene($('#c'));
 const G = { mode: null, human: 0, level: 2, board: null, moves: [], sans: [], legal: [], over: false, busy: false, thinking: false, sel: -1, targets: [], clocks: [0, 0], tc: TIMES[0], hints: 0, undos: 0, paused: false, startFen: E.START_FEN, id: 0, tick: null, captured: [[], []], lastMove: null };
 
-function applyStyle() { scene.setStyle({ board: Save.d.board, pcolor: Save.d.pcolor, set: Save.d.set, quality: Save.d.quality, speed: Save.d.speed, cinema: Save.d.cinema }); }
+function applyStyle() { scene.setStyle({ board: Save.d.board, pcolor: Save.d.pcolor, set: Save.d.set, quality: Save.d.quality, speed: Save.d.speed, cinema: Save.d.cinema, labels: Save.d.labels, bg: Save.d.bg, custom: Save.d.customBoard }); }
 applyStyle();
 scene.onQuality = q => toast('Graphics set to ' + q + ' for smooth play', 2600);
 
 let toastT;
 function toast(msg, ms = 1900) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), ms); }
-function modal(html) { $('#card').innerHTML = html; $('#modal').classList.remove('hidden'); G.paused = G.mode && !G.over ? true : G.paused; }
+function modal(html) { $('#card').innerHTML = html; $('#card').dataset.dismiss = '0'; $('#modal').classList.remove('hidden'); G.paused = G.mode && !G.over ? true : G.paused; }
 function closeModal() { $('#modal').classList.add('hidden'); if (G.mode && !G.over) G.paused = false; }
 const modalOpen = () => !$('#modal').classList.contains('hidden');
 $('#card').addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b || b.disabled) return; Sfx.click();
   const fn = ACT[b.dataset.act]; if (fn) fn(b.dataset.a, b);
 });
+$('#card').addEventListener('change', e => { const k = e.target.dataset && e.target.dataset.cb; if (!k) return; Save.d.customBoard[k] = e.target.value; Save.d.board = 'custom'; Save.save(); applyStyle(); showSettings(); });
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal' && !G.over && ($('#card').dataset.dismiss === '1')) closeModal(); });
 
 /* ---------- puzzles (mate in N, unique solution; generated + verified by the engine) ---------- */
@@ -117,20 +130,21 @@ function trackCapture(b, m) {
   if (flag & E.F_CAP) { const v = (flag & E.F_EP) ? E.P : (b.b[to] & 7); G.captured[us].push(TCH[v]); }
 }
 function setupBars() {
+  const paintAv = (id, color, glyph) => { const e = $(id); e.className = 'avatar ' + (color ? 'avb' : 'avw'); e.textContent = glyph; };
   if (G.mode === 'puzzle') {
     const pz = PUZ[G.puz.i]; G.bottomColor = G.human;
-    $('#nameTop').textContent = `🧩 Puzzle ${pz.id}${G.puz.daily ? ' · Daily' : ''}`; $('#avTop').textContent = '🧩';
-    $('#nameBot').textContent = `${G.human ? 'Black' : 'White'} to play · Mate in ${pz.n}`; $('#avBot').textContent = G.human ? '♚\uFE0E' : '♔\uFE0E';
+    $('#nameTop').textContent = `🧩 Puzzle ${pz.id}${G.puz.daily ? ' · Daily' : ''}`; $('#avTop').className = 'avatar'; $('#avTop').textContent = '🧩';
+    $('#nameBot').textContent = `You · ${G.human ? 'Black' : 'White'} · Mate in ${pz.n}`; paintAv('#avBot', G.human, G.human ? '♚\uFE0E' : '♔\uFE0E');
     $('#btnHint').classList.remove('hidden'); $('#btnUndo').classList.add('hidden'); return;
   }
   $('#btnUndo').classList.remove('hidden');
   const ai = G.mode === 'ai', L = E.LEVELS[G.level];
-  const bottomColor = ai ? G.human : 0, topColor = bottomColor ^ 1;
+  const bottomColor = ai ? G.human : 0, topColor = bottomColor ^ 1, cn = c => c ? 'Black' : 'White';
   G.bottomColor = bottomColor;
-  $('#nameBot').textContent = ai ? 'You' : (bottomColor ? 'Black' : 'White') + ' · Player ' + (bottomColor + 1);
-  $('#nameTop').textContent = ai ? `Computer · ${L.name}` : (topColor ? 'Black' : 'White') + ' · Player ' + (topColor + 1);
-  $('#avBot').textContent = bottomColor ? '♚︎' : '♔︎'; $('#avTop').textContent = ai ? '🤖' : (topColor ? '♚︎' : '♔︎');
-  $('#btnHint').classList.toggle('hidden', !ai); $('#btnUndo').classList.toggle('hidden', false);
+  $('#nameBot').textContent = ai ? `You · ${cn(bottomColor)}` : `Player ${bottomColor + 1} · ${cn(bottomColor)}`;
+  $('#nameTop').textContent = ai ? `Computer (${L.name}) · ${cn(topColor)}` : `Player ${topColor + 1} · ${cn(topColor)}`;
+  paintAv('#avBot', bottomColor, bottomColor ? '♚\uFE0E' : '♔\uFE0E'); paintAv('#avTop', topColor, ai ? '🤖' : (topColor ? '♚\uFE0E' : '♔\uFE0E'));
+  $('#btnHint').classList.toggle('hidden', !ai);
 }
 function fmt(s) { s = Math.max(0, Math.ceil(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
 function updateHud() {
@@ -145,6 +159,12 @@ function updateHud() {
   strip.innerHTML = out.reverse().join('');
   $('#nUndo').textContent = G.undos; $('#nHint').textContent = G.hints;
   $('#think').classList.toggle('hidden', !G.thinking);
+  { const t = b.turn, wh = t === 0, chk = !G.over && b.inCheck(), el = $('#turn'); let txt;
+    if (G.over) txt = 'Game over';
+    else if (G.mode === 'puzzle') txt = `${wh ? 'White' : 'Black'} to play · Mate in ${G.puz.n - G.puz.step}`;
+    else if (G.mode === 'ai') txt = t === G.human ? `Your move · ${wh ? 'White' : 'Black'}` : `Computer's move · ${wh ? 'White' : 'Black'}`;
+    else txt = `${wh ? 'White' : 'Black'}'s move`;
+    el.className = 'turn ' + (wh ? 'w' : 'b') + (chk ? ' chk' : ''); el.textContent = (chk ? '⚠ CHECK · ' : '') + txt; }
   $('#btnUndo').disabled = G.moves.length === 0 || G.busy || G.thinking || G.over;
   $('#btnHint').disabled = G.busy || G.thinking || G.over || (G.mode === 'ai' && G.board.turn !== G.human);
 }
@@ -171,13 +191,13 @@ scene.onPick = sq => {
   if (G.mode === 'ai' && G.board.turn !== G.human) return;
   const b = G.board, p = b.b[sq];
   if (G.sel >= 0 && G.targets.some(t => t.sq === sq)) { tryMove(G.sel, sq); return; }
-  if (p && (p >> 3) === b.turn) selectSq(sq); else if (G.sel >= 0) { G.sel = -1; G.targets = []; scene.deselect(); }
+  if (p && (p >> 3) === b.turn) selectSq(sq); else if (G.sel >= 0) { G.sel = -1; G.targets = []; scene.deselect(); hidePieceInfo(); }
 };
 function selectSq(sq) {
   const mv = G.legal.filter(m => (m & 63) === sq), seen = new Map();
   for (const m of mv) { const to = (m >> 6) & 63; seen.set(to, seen.get(to) || !!((m >> 16) & E.F_CAP)); }
   G.sel = sq; G.targets = [...seen].map(([s, c]) => ({ sq: s, capture: c }));
-  Sfx.select(); Sfx.buzz(8);
+  Sfx.select(); Sfx.buzz(8); showPieceInfo(sq);
   scene.select(sq, Save.d.legal ? G.targets : []);
   if (!mv.length) { toast('No legal moves for this piece'); }
 }
@@ -185,19 +205,24 @@ function tryMove(from, to) {
   const mv = G.legal.filter(m => (m & 63) === from && ((m >> 6) & 63) === to);
   if (!mv.length) return;
   if (G.mode === 'puzzle' && mv.length === 1 && !puzzleAccept(mv[0])) return puzzleWrong();
-  if (mv.length > 1) { // promotion
-    const color = G.board.turn;
-    modal(`<h2>Promote</h2><p>Choose your new piece</p><div class="promo">${['q', 'r', 'b', 'n'].map(t => `<button data-act="promo" data-a="${t}">${glyph(t)}<small>${NAMES[Save.d.set][t]}</small></button>`).join('')}</div>`);
-    G._promo = mv; return;
-  }
+  if (mv.length > 1) { promotionDialog(mv); return; }
   commit(mv[0]);
 }
+function promotionDialog(mv) {
+  const color = G.board.turn, set = Save.d.set, nm = { q: 'Queen', r: set === 'royal' ? 'Elephant (Rook)' : 'Rook', b: set === 'royal' ? 'Camel (Bishop)' : 'Bishop', n: set === 'royal' ? 'Horse (Knight)' : 'Knight' };
+  G._promo = mv;
+  modal(`<h2>Pawn Promotion</h2><p>Your ${set === 'royal' ? 'soldier' : 'pawn'} reached the last rank!<br>Choose what it becomes:</p>
+    <div class="promo2">${['q', 'r', 'b', 'n'].map(t => `<button class="pbtn ${color ? 'pb' : 'pw'}" data-act="promo" data-a="${t}"><span class="pgl">${glyph(t)}</span><b>${nm[t]}</b></button>`).join('')}</div>
+    <div class="col"><button class="btn ghost" data-act="promoCancel">Cancel move</button></div>`);
+  $('#card').dataset.dismiss = '0';
+}
 const ACT = {};
-ACT.promo = t => { const code = 'pnbrqk'.indexOf(t) + 1; const m = G._promo.find(x => ((x >> 12) & 7) === code); closeModal(); G._promo = null; if (m) { if (G.mode === 'puzzle' && !puzzleAccept(m)) return puzzleWrong(); commit(m); } };
+ACT.promoCancel = () => { G._promo = null; closeModal(); toast('Move cancelled – choose another move'); };
+ACT.promo = t => { if (!G._promo) return; const code = 'pnbrqk'.indexOf(t) + 1; const m = G._promo.find(x => ((x >> 12) & 7) === code); closeModal(); G._promo = null; if (m) { if (G.mode === 'puzzle' && !puzzleAccept(m)) return puzzleWrong(); commit(m); } };
 
 /* ---------- making moves ---------- */
 async function commit(m) {
-  const b = G.board, gid = G.id; G.busy = true; G.sel = -1; G.targets = []; scene.deselect(false);
+  const b = G.board, gid = G.id; G.busy = true; G.sel = -1; G.targets = []; scene.deselect(false); hidePieceInfo();
   const from = m & 63, to = (m >> 6) & 63, flag = (m >> 16) & 15, promo = (m >> 12) & 7, us = b.turn;
   const san = b.san(m, G.legal); let capture = null, castle = null;
   if (flag & E.F_CAP) capture = { sq: (flag & E.F_EP) ? (us ? to + 8 : to - 8) : to };
@@ -356,17 +381,20 @@ $('#btnGift').onclick = () => { Sfx.init(); Sfx.click(); showDaily(); };
 function showShop() {
   const d = Save.d, I = CFG.iap, ad = d.adCoins.date === todayStr() ? d.adCoins.n : 0;
   const row = (kind, key, info, owned, cur, sw) => `<div class="item"><div class="sw" style="background:${sw}"></div><div class="grow">${info.name}<small>${owned ? 'Unlocked' : info.cost + ' coins'}</small></div><button class="btn ${cur ? 'ghost' : owned ? 'gold' : ''}" data-act="${kind}" data-a="${key}">${cur ? 'Equipped' : owned ? 'Equip' : '🪙 ' + info.cost}</button></div>`;
-  const bsw = { wood: 'linear-gradient(135deg,#eed3a4 50%,#7c4a2a 50%)', marble: 'linear-gradient(135deg,#eeeae3 50%,#2a2a2e 50%)', emerald: 'linear-gradient(135deg,#e8dfc2 50%,#2f6e52 50%)', sapphire: 'linear-gradient(135deg,#c9d7ec 50%,#27487d 50%)' };
+  const bsw = Object.fromEntries(Object.entries(BOARDS).map(([k, v]) => [k, `linear-gradient(135deg,${v.light} 50%,${v.dark} 50%)`]));
   const psw = { ivory: 'linear-gradient(135deg,#d8c7a1 50%,#23201f 50%)', rosewood: 'linear-gradient(135deg,#e6c99a 50%,#5a2a20 50%)', gold: 'linear-gradient(135deg,#dfe3ea 50%,#d0a233 50%)' };
   modal(`<h2>Shop</h2><p>🪙 ${d.coins} coins</p><div class="list">
    <div class="item"><div class="grow">▶ Free coins<small>${5 - ad} left today · +60 each</small></div><button class="btn ad" data-act="freeCoins">Watch</button></div>
    ${d.noAds ? '' : `<div class="item"><div class="grow">🚫 ${I.remove_ads.name}<small>${I.remove_ads.desc}</small></div><button class="btn gold" data-act="buy" data-a="remove_ads">${I.remove_ads.price}</button></div>`}
    ${['coins_500', 'coins_1500', 'coins_4000'].map(k => `<div class="item"><div class="grow">🪙 ${I[k].name}</div><button class="btn gold" data-act="buy" data-a="${k}">${I[k].price}</button></div>`).join('')}
-   </div><h3>Boards</h3><div class="list">${Object.entries(BOARDS).map(([k, v]) => row('board', k, v, d.boards.includes(k), d.board === k, bsw[k])).join('')}</div>
+   </div><h3>Boards</h3><div class="list">${Object.entries(BOARDS).filter(([k]) => k !== 'custom').map(([k, v]) => row('board', k, v, d.boards.includes(k), d.board === k, bsw[k])).join('')}</div>
    <h3>Piece colours</h3><div class="list">${Object.entries(PIECE_COLORS).map(([k, v]) => row('pcolor', k, v, d.pcolors.includes(k), d.pcolor === k, psw[k])).join('')}</div>
    <div class="col"><button class="btn ghost" data-act="close">Close</button></div>`);
   $('#card').dataset.dismiss = '1';
 }
+ACT.bg = k => { if (!Save.d.bgs.includes(k)) { if (Save.d.coins < BGS[k].cost) return toast('Not enough coins'); Save.d.coins -= BGS[k].cost; Save.d.bgs.push(k); Sfx.coin(); } Save.d.bg = k; Save.save(); applyStyle(); showShop(); };
+let bgPrevT;
+ACT.bgPreview = k => { closeModal(); scene.setStyle({ bg: k }); toast(`Previewing ${BGS[k].name} – buy it in the Shop to keep`, 3200); clearTimeout(bgPrevT); bgPrevT = setTimeout(() => { scene.setStyle({ bg: Save.d.bg }); showShop(); }, 6500); };
 ACT.board = k => { if (!Save.d.boards.includes(k)) { if (Save.d.coins < BOARDS[k].cost) return toast('Not enough coins'); Save.d.coins -= BOARDS[k].cost; Save.d.boards.push(k); Sfx.coin(); } Save.d.board = k; Save.save(); applyStyle(); showShop(); };
 ACT.pcolor = k => { if (!Save.d.pcolors.includes(k)) { if (Save.d.coins < PIECE_COLORS[k].cost) return toast('Not enough coins'); Save.d.coins -= PIECE_COLORS[k].cost; Save.d.pcolors.push(k); Sfx.coin(); } Save.d.pcolor = k; Save.save(); applyStyle(); showShop(); };
 ACT.freeCoins = async () => { const a = Save.d.adCoins, t = todayStr(); if (a.date !== t) { a.date = t; a.n = 0; } if (a.n >= 5) return toast('Come back tomorrow!'); if (await Ads.rewarded()) { a.n++; Save.d.coins += 60; Save.save(); toast('+60 🪙'); Sfx.coin(); showShop(); } };
@@ -378,6 +406,11 @@ function showSettings() {
   const opts = (k, vals) => vals.map(([v, l]) => `<button class="opt ${d[k] === v ? 'on' : ''}" data-act="pick" data-a="${k}:${v}">${l}</button>`).join('');
   modal(`<h2>Settings</h2><div class="list">${sw('sound', 'Sound effects')}${sw('music', 'Music')}${sw('vib', 'Vibration')}${sw('legal', 'Show legal moves')}${sw('cinema', 'Cinematic move camera')}${sw('autoRotate', 'Auto-turn board (Pass &amp; Play)')}</div>
    <h3>Piece style</h3><div class="chips">${opts('set', [['royal', '🐴 Royal Animals'], ['staunton', '♞ Classic']])}</div>
+   <h3>Board colours</h3><div class="chips boards">${Object.entries(BOARDS).filter(([k]) => d.boards.includes(k)).map(([k, v]) => { const sw = k === 'custom' ? `linear-gradient(135deg,${d.customBoard.light} 50%,${d.customBoard.dark} 50%)` : `linear-gradient(135deg,${v.light} 50%,${v.dark} 50%)`; return `<button class="opt bo ${d.board === k ? 'on' : ''}" data-act="pick" data-a="board:${k}"><i style="background:${sw}"></i><small>${v.name}</small></button>`; }).join('')}<button class="opt bo" data-act="toShopBoards"><i style="background:linear-gradient(135deg,#fff 50%,#caa 50%);display:grid;place-items:center;font-style:normal">🛍</i><small>More boards</small></button></div>
+   ${d.board === 'custom' ? `<div class="custom"><label>Light squares<input type="color" data-cb="light" value="${d.customBoard.light}"></label><label>Dark squares<input type="color" data-cb="dark" value="${d.customBoard.dark}"></label></div>
+   <div class="chips">${[['wood', 'Wood grain'], ['felt', 'Matte'], ['glass', 'Glossy']].map(([f, l]) => `<button class="opt ${d.customBoard.finish === f ? 'on' : ''}" data-act="cfinish" data-a="${f}">${l}</button>`).join('')}</div>` : ''}
+   <h3>Background</h3><div class="chips">${Object.entries(BGS).filter(([k]) => d.bgs.includes(k)).map(([k, v]) => `<button class="opt ${d.bg === k ? 'on' : ''}" data-act="pick" data-a="bg:${k}">${v.icon}<small>${v.name}</small></button>`).join('')}<button class="opt" data-act="toShopBg">🛍<small>More in shop</small></button></div>
+   <h3>Piece badges (shows what each piece is)</h3><div class="chips">${opts('labels', [['icons', 'Icons'], ['letters', 'Letters'], ['off', 'Off']])}</div>
    <h3>Graphics</h3><div class="chips">${opts('quality', [['auto', 'Auto'], ['high', 'High'], ['medium', 'Medium'], ['low', 'Low']])}</div>
    <h3>Animation speed</h3><div class="chips">${opts('speed', [[0.7, 'Slow'], [1, 'Normal'], [1.6, 'Fast']])}</div>
    <div class="col"><button class="btn dark" data-act="restore">Restore purchases</button><button class="btn gold" data-act="close">Done</button></div>`);
@@ -386,13 +419,20 @@ function showSettings() {
 ACT.settings = () => showSettings();
 ACT.tog = k => { Save.d[k] = !Save.d[k]; Save.save(); if (k === 'cinema') applyStyle(); if (k === 'music') Sfx.music(Save.d.music); if (k === 'sound' && !Save.d.sound) Sfx.music(false); showSettings(); };
 ACT.pick = a => { const [k, v] = a.split(':'); Save.d[k] = k === 'speed' ? +v : v; Save.save(); applyStyle(); if (G.board && G.mode && k === 'set') { updateHud(); } showSettings(); };
+ACT.toShopBg = () => showShop(); ACT.toShopBoards = () => { showShop(); setTimeout(() => { const c = $('.card'); if (c) c.scrollTop = 900; }, 50); };
+ACT.cfinish = f => { Save.d.customBoard.finish = f; Save.save(); applyStyle(); showSettings(); };
 ACT.restore = () => toast('Purchases restored (if any)');
 $('#btnSettings').onclick = () => { Sfx.init(); Sfx.click(); showSettings(); };
 $('#btnStats').onclick = () => { Sfx.click(); const s = Save.d.stats;
   modal(`<h2>Your Stats</h2><div class="stat"><span>Rating</span><span>${Save.d.rating}</span></div><div class="stat"><span>Games vs computer</span><span>${s.games}</span></div><div class="stat"><span>Wins</span><span>${s.wins}</span></div><div class="stat"><span>Draws</span><span>${s.draws}</span></div><div class="stat"><span>Losses</span><span>${s.losses}</span></div><div class="stat"><span>Strongest opponent beaten</span><span>${s.best || '—'}</span></div><div class="col"><button class="btn gold" data-act="close">Close</button></div>`); $('#card').dataset.dismiss = '1'; };
-$('#btnHow').onclick = () => { Sfx.click();
-  modal(`<h2>How to play</h2><p style="text-align:left">Tap a piece, then tap a highlighted square. Drag to rotate the board, pinch to zoom.<br><br>🐴 <b>Horse</b> (knight) leaps in an L.<br>🐘 <b>Elephant</b> (rook) marches in straight lines.<br>🐪 <b>Camel</b> (bishop) crosses diagonally.<br>♛ <b>Queen</b> glides anywhere · ♚ <b>King</b> steps one square · ♟ <b>Soldier</b> (pawn) marches forward, captures diagonally, promotes on the far rank.<br><br>Switch to <b>Classic</b> pieces anytime in Settings.</p><div class="col"><button class="btn gold" data-act="close">Got it</button></div>`); $('#card').dataset.dismiss = '1'; };
-
+function showGuide() {
+  const set = Save.d.set, rows = ['k', 'q', 'r', 'b', 'n', 'p'].map(t => { const [g, name, desc] = PINFO[set][t]; return `<div class="gi"><div class="gg">${g}</div><div><b>${name}</b><span>${desc}</span></div></div>`; }).join('');
+  modal(`<h2>Meet the pieces</h2><p style="margin:2px 0 6px">Every piece wears a badge so you always know who is who.</p>
+   <div class="teams"><div class="tw">⚪ White<br><small>ivory pieces · gold ring</small></div><div class="tb">⚫ Black<br><small>dark pieces · red ring</small></div></div>
+   <div class="guide">${rows}</div><div class="col"><button class="btn gold" data-act="close">Got it</button></div>`); $('#card').dataset.dismiss = '1';
+}
+ACT.guide = () => showGuide();
+$('#btnHow').onclick = () => { Sfx.click(); showGuide(); };
 /* ---------- puzzle flow ---------- */
 function puzzleAccept(m) {
   const p = G.puz, b = G.board, rem = p.n - p.step;

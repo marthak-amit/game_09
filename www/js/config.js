@@ -19,10 +19,25 @@ export const CFG = {
   hintsPerGame: 3, undosPerGame: 3
 };
 export const BOARDS = {
-  wood:     { name: 'Classic Wood',  cost: 0 },
-  marble:   { name: 'Black Marble',  cost: 400 },
-  emerald:  { name: 'Emerald Club',  cost: 600 },
-  sapphire: { name: 'Royal Sapphire', cost: 800 }
+  wood:       { name: 'Classic Wood',   cost: 0,   light: '#eed3a4', dark: '#7c4a2a' },
+  tournament: { name: 'Tournament',     cost: 0,   light: '#eeeed2', dark: '#6f9a52' },
+  walnut:     { name: 'Dark Walnut',    cost: 0,   light: '#d9b88a', dark: '#4e3020' },
+  slate:      { name: 'Slate',          cost: 0,   light: '#d4dae1', dark: '#5b6b80' },
+  custom:     { name: 'Custom colours', cost: 0,   light: '#f0d9b5', dark: '#b58863' },
+  marble:     { name: 'Black Marble',   cost: 400, light: '#eeeae3', dark: '#2a2a2e' },
+  emerald:    { name: 'Emerald Club',   cost: 500, light: '#e8dfc2', dark: '#2f6e52' },
+  ruby:       { name: 'Ruby Velvet',    cost: 400, light: '#f4e4d6', dark: '#9b2335' },
+  ocean:      { name: 'Ocean Reef',     cost: 400, light: '#f1e5c8', dark: '#1f8a9c' },
+  royal:      { name: 'Royal Purple',   cost: 500, light: '#e9def6', dark: '#6a46a3' },
+  candy:      { name: 'Candy Pink',     cost: 300, light: '#fdeaf1', dark: '#e58ab4' },
+  sapphire:   { name: 'Royal Sapphire', cost: 700, light: '#c9d7ec', dark: '#27487d' }
+};
+export const BGS = {
+  wood:   { name: 'Wooden Table',  icon: '🪵', cost: 0 },
+  palace: { name: 'Royal Palace',  icon: '🏰', cost: 250 },
+  garden: { name: 'Sunset Garden', icon: '🌅', cost: 250 },
+  night:  { name: 'Starry Night',  icon: '🌙', cost: 350 },
+  snow:   { name: 'Snowy Peak',    icon: '❄️', cost: 250 }
 };
 export const PIECE_COLORS = {
   ivory:    { name: 'Ivory & Ebony',    cost: 0 },

@@ -83,6 +83,7 @@ class Kit {
 
 /* ---------- shared pieces ---------- */
 function plinth(kit, R = 0.4, h = 0.11, key = 'body') {
+  kit.add('ring', new THREE.TorusGeometry(R + 0.012, 0.021, 8, 56), { p: [0, 0.042, 0], r: [Math.PI / 2, 0, 0] });   // team ring: gold = White, red = Black
   kit.add(key, lathe([[0, 0], [R, 0], [R + 0.015, 0.02], [R + 0.015, 0.045], [R - 0.01, 0.065], [R - 0.05, 0.08], [R - 0.07, h], [0, h]], 48));
 }
 
@@ -111,13 +112,14 @@ function queen(kit) {
   kit.add('accent', new THREE.TorusGeometry(0.15, 0.02, 8, 32), { p: [0, 0.9, 0], r: [Math.PI / 2, 0, 0] });
   for (let i = 0; i < 8; i++) { const a = (i / 8) * TAU; kit.add('accent', new THREE.SphereGeometry(0.032, 10, 8), { p: [Math.cos(a) * 0.2, 1.15, Math.sin(a) * 0.2] }); }
   kit.add('accent', new THREE.SphereGeometry(0.06, 14, 10), { p: [0, 1.2, 0] });
+  kit.add('accent2', new THREE.SphereGeometry(0.038, 12, 8), { p: [0, 1.27, 0] });   // jewel – the queen's crown is round & spiky, the king's is a cross
 }
 function king(kit) {
   plinth(kit, 0.38, 0.1);
   kit.add('body', lathe([[0, 0.08], [0.29, 0.1], [0.21, 0.25], [0.13, 0.5], [0.095, 0.85], [0.15, 1.0], [0.22, 1.12], [0.19, 1.2], [0.1, 1.22], [0, 1.22]], 40));
   kit.add('accent', new THREE.TorusGeometry(0.155, 0.022, 8, 32), { p: [0, 0.95, 0], r: [Math.PI / 2, 0, 0] });
-  kit.add('accent', new THREE.BoxGeometry(0.07, 0.3, 0.07), { p: [0, 1.4, 0] });
-  kit.add('accent', new THREE.BoxGeometry(0.22, 0.07, 0.07), { p: [0, 1.45, 0] });
+  kit.add('accent', new THREE.BoxGeometry(0.085, 0.36, 0.085), { p: [0, 1.46, 0] });
+  kit.add('accent', new THREE.BoxGeometry(0.28, 0.085, 0.085), { p: [0, 1.52, 0] });
   kit.add('accent', new THREE.SphereGeometry(0.06, 12, 8), { p: [0, 1.26, 0] });
 }
 
@@ -258,7 +260,7 @@ export function buildPiece(type, set, mats) {
   root.add(body);
   for (const l of out.legs) { root.add(l.grp); }
   if (!staunton && (type === 'n' || type === 'r' || type === 'b')) { const s = type === 'r' ? 0.9 : 0.95; body.scale.setScalar(s); body.position.z = -0.02; for (const l of out.legs) { l.grp.scale.setScalar(s); l.grp.position.z = l.grp.position.z * s - 0.02; l.grp.position.y *= s; } }
-  const heights = { p: 0.75, n: 1.05, b: 1.1, r: 0.95, q: 1.3, k: 1.5 };
+  const heights = { p: 0.75, n: 1.05, b: 1.1, r: 0.95, q: 1.3, k: 1.6 };
   out.root = root; out.height = heights[type];
   return out;
 }
@@ -269,6 +271,7 @@ export function makeMaterials(scheme, color) {
   const body = new THREE.MeshPhysicalMaterial({ color: c.color, roughness: c.rough, metalness: c.metal || 0, clearcoat: c.clear ?? 0.4, clearcoatRoughness: 0.3, envMapIntensity: 0.65 });
   return {
     body, base: body,
+    ring: new THREE.MeshStandardMaterial({ color: color === 0 ? 0xe9b93c : 0xc4252e, metalness: 0.55, roughness: 0.32, emissive: color === 0 ? 0x6b4c0a : 0x5a0a10, emissiveIntensity: 0.55 }),
     accent: new THREE.MeshPhysicalMaterial({ color: scheme.accent[color], roughness: 0.34, metalness: 0.85, clearcoat: 0.2, envMapIntensity: 0.9 }),
     accent2: new THREE.MeshStandardMaterial({ color: scheme.accent2[color], roughness: 0.7 }),
     dark: new THREE.MeshStandardMaterial({ color: 0x0b0a0a, roughness: 0.25 }),

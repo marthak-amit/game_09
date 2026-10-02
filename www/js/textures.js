@@ -18,8 +18,21 @@ export const THEMES = {
   wood: { light: 0xeed3a4, dark: 0x7c4a2a, frame: 0x4a2a18, trim: 0xd9ad4a, label: 0xe8c98a, type: 'wood' },
   marble: { light: 0xeeeae3, dark: 0x2a2a2e, frame: 0x1c1a1a, trim: 0xd4af37, label: 0xd9c27a, type: 'marble', veinL: 0x8a8f99, veinD: 0xcaa646 },
   emerald: { light: 0xe8dfc2, dark: 0x2f6e52, frame: 0x3b2316, trim: 0xe0b84e, label: 0xe8d9a0, type: 'felt' },
-  sapphire: { light: 0xc9d7ec, dark: 0x27487d, frame: 0x121b33, trim: 0xcfd6e6, label: 0xc3cde3, type: 'glass' }
+  sapphire: { light: 0xc9d7ec, dark: 0x27487d, frame: 0x121b33, trim: 0xcfd6e6, label: 0xc3cde3, type: 'glass' },
+  tournament: { light: 0xeeeed2, dark: 0x6f9a52, frame: 0x2f2418, trim: 0xd9ad4a, label: 0xe8d9a0, type: 'felt' },
+  walnut:   { light: 0xd9b88a, dark: 0x4e3020, frame: 0x24150c, trim: 0xd9ad4a, label: 0xe0c48a, type: 'wood' },
+  slate:    { light: 0xd4dae1, dark: 0x5b6b80, frame: 0x1c222b, trim: 0xb8c2d0, label: 0xc3cde3, type: 'glass' },
+  ruby:     { light: 0xf4e4d6, dark: 0x9b2335, frame: 0x2b0d12, trim: 0xe0b84e, label: 0xf0d9a0, type: 'felt' },
+  ocean:    { light: 0xf1e5c8, dark: 0x1f8a9c, frame: 0x0f2a33, trim: 0xe0c070, label: 0xe8dbb0, type: 'felt' },
+  royal:    { light: 0xe9def6, dark: 0x6a46a3, frame: 0x1d1233, trim: 0xe0b84e, label: 0xe3d6f2, type: 'glass' },
+  candy:    { light: 0xfdeaf1, dark: 0xe58ab4, frame: 0x4a2234, trim: 0xffd6e6, label: 0xffe6f0, type: 'felt' }
 };
+const toHex = h => parseInt(String(h).replace('#', ''), 16) || 0;
+const shadeHex = (h, f) => { const c = hex(h); return ((c[0] * f) << 16) | ((c[1] * f) << 8) | (c[2] * f); };
+export function customTheme(c) {           // player-chosen colours: { light:'#rrggbb', dark:'#rrggbb', finish:'wood'|'felt'|'glass' }
+  const light = toHex(c.light), dark = toHex(c.dark);
+  return { light, dark, frame: shadeHex(dark, 0.42) | 0, trim: 0xd9ad4a, label: 0xe8d9a0, type: c.finish === 'felt' || c.finish === 'glass' ? c.finish : 'wood' };
+}
 
 function canvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
 
@@ -106,8 +119,8 @@ function tex(canvasEl, renderer, repeat) {
   return t;
 }
 
-export function makeBoardTextures(key, renderer) {
-  const theme = THEMES[key] || THEMES.wood, seed = 7;
+export function makeBoardTextures(key, renderer, custom) {
+  const theme = key === 'custom' && custom ? customTheme(custom) : (THEMES[key] || THEMES.wood), seed = 7;
   return { theme, squares: tex(paintSquares(theme, seed), renderer), frame: tex(paintFrame(theme, seed), renderer), table: tex(paintTable(seed), renderer, 4) };
 }
 export function glowTexture(color) {
@@ -118,5 +131,44 @@ export function glowTexture(color) {
 export function softDot() {
   const c = canvas(64, 64), ctx = c.getContext('2d'), g = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
   g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(1, 'rgba(255,255,255,0)'); ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+
+/** floor / table surface for each background scene */
+export function makeTableTexture(kind, renderer) {
+  if (kind === 'wood') { const t = tex(paintTable(7), renderer, 5); return t; }
+  const S = kind === 'glass' ? 256 : 512, c = canvas(S, S), ctx = c.getContext('2d'), img = ctx.createImageData(S, S), d = img.data, seed = 11;
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    let r, g, b;
+    if (kind === 'palace') {                         // black & cream marble tiles with gold grout
+      const tile = S / 4, tx = Math.floor(x / tile), ty = Math.floor(y / tile), dark = (tx + ty) & 1;
+      const n = fbm(x * 0.012, y * 0.012, seed + dark, 4), vein = Math.pow(1 - Math.abs(Math.sin((x + y * 0.7) * 0.03 + n * 7)), 9);
+      const base = dark ? [44, 18, 28] : [232, 222, 200], vc = dark ? [205, 165, 75] : [150, 140, 130];
+      r = base[0] * (1 - vein * 0.5) + vc[0] * vein * 0.5; g = base[1] * (1 - vein * 0.5) + vc[1] * vein * 0.5; b = base[2] * (1 - vein * 0.5) + vc[2] * vein * 0.5;
+      const e = Math.min(x % tile, tile - (x % tile), y % tile, tile - (y % tile)); if (e < 3) { r = 190; g = 148; b = 60; }
+    } else if (kind === 'grass') {                    // lawn
+      const t = fbm(x * 0.04, y * 0.04, seed, 3), blade = hash2(x, y, seed) - 0.5, streak = fbm(x * 0.5, y * 0.05, seed + 3, 2);
+      r = 40 + t * 60 + blade * 26; g = 92 + t * 90 + blade * 40 + streak * 20; b = 36 + t * 30 + blade * 18;
+    } else if (kind === 'glass') {                     // dark mirror-like deck with a faint grid
+      const gx = x % 64, gy = y % 64, line = (gx < 2 || gy < 2) ? 28 : 0, rad = 1 - Math.hypot(x - S / 2, y - S / 2) / (S * 0.8);
+      r = 10 + line * 0.6 + rad * 12; g = 16 + line * 0.9 + rad * 20; b = 40 + line * 1.5 + rad * 40; if (hash2(x, y, seed) > 0.997) { r += 90; g += 100; b += 120; }
+    } else {                                           // snow
+      const t = fbm(x * 0.03, y * 0.03, seed, 4), sp = hash2(x, y, seed) > 0.996 ? 20 : 0, nz = (hash2(x, y, seed + 5) - 0.5) * 8;
+      r = 232 + t * 20 + nz + sp; g = 240 + t * 14 + nz + sp; b = 252 + nz + sp;
+    }
+    const i = (y * S + x) * 4; d[i] = clamp255(r); d[i + 1] = clamp255(g); d[i + 2] = clamp255(b); d[i + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  return tex(c, renderer, { palace: 6, grass: 12, glass: 14, snow: 10 }[kind] || 8);
+}
+export function skyTexture(stops) {            // vertical gradient used as the scene background; [top, horizon, bottom]
+  const c = canvas(4, 512), x = c.getContext('2d'), g = x.createLinearGradient(0, 0, 0, 512);
+  g.addColorStop(0, stops[0]); g.addColorStop(0.46, stops[1]); g.addColorStop(1, stops[2] || stops[1]); x.fillStyle = g; x.fillRect(0, 0, 4, 512);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+export function moonTexture() {
+  const c = canvas(256, 256), x = c.getContext('2d'), g = x.createRadialGradient(128, 128, 20, 128, 128, 126);
+  g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.35, 'rgba(235,242,255,1)'); g.addColorStop(0.42, 'rgba(190,210,255,.35)'); g.addColorStop(1, 'rgba(120,150,255,0)');
+  x.fillStyle = g; x.fillRect(0, 0, 256, 256); x.fillStyle = 'rgba(160,175,205,.35)'; for (const [cx, cy, r] of [[110, 110, 14], [146, 124, 9], [122, 150, 11]]) { x.beginPath(); x.arc(cx, cy, r, 0, 7); x.fill(); }
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }

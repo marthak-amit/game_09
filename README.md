@@ -12,6 +12,20 @@ Every piece looks like what it is — and **moves like it**:
 
 Prefer tournament pieces? Settings → *Piece style* → **Classic Staunton** (carved horse-head knight, crenellated rook, mitre bishop).
 
+## Always know who is who
+- **Piece badges** float above every piece (🐴 🐘 🐪 ♛ ♚ ♟) – ivory with a gold border for White, dark with a red border for Black. Switch to letters (K Q R B N P) or turn them off in Settings
+- **Team rings** on every base: gold = White, red = Black
+- **Turn banner** under the top bar: *"Your move · White"*, *"Computer's move · Black"*, *"⚠ CHECK"*
+- **Name card** when you tap a piece: *"🐴 Horse (Knight) · White – leaps in an L-shape…"*
+- Player bars show your colour; **Help → Meet the pieces** explains every piece
+
+## Board colours & pawn promotion
+- **12 board colour themes** (4 free + Custom, the rest unlocked with coins) – Classic Wood, Tournament green, Dark Walnut, Slate, Black Marble, Emerald, Ruby, Ocean, Royal Purple, Candy Pink, Sapphire – and a **Custom** board where you pick any two square colours and a finish (wood / matte / glossy). Change them any time in Settings
+- **Pawn promotion** always asks: Queen, Rook, Bishop or Knight (Elephant / Camel / Horse in the animal set), in your team's colours, with a Cancel option. The dialog can't be dismissed by a stray tap
+
+## Backgrounds
+Wooden Table · Royal Palace (marble tiles, candle glow, floating gold dust) · Sunset Garden (lawn, fireflies) · Starry Night (reflective deck, stars, moon) · Snowy Peak (falling snow). Preview any background for free in the Shop, unlock with coins.
+
 ## Features
 - **True 3D** – drag to rotate the board, pinch to zoom, procedural wood / black marble / emerald felt / sapphire boards, real shadows & reflections
 - **Complete chess rules** – castling, en passant, promotion, check / checkmate / stalemate, 50-move, threefold repetition, insufficient material. The move generator is verified with **perft** against the published reference counts

@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { buildPiece, makeMaterials, SCHEMES } from './pieces.js';
-import { makeBoardTextures, glowTexture, softDot } from './textures.js';
+import { makeBoardTextures, makeTableTexture, skyTexture, moonTexture, glowTexture, softDot } from './textures.js';
 import { Sfx } from './audio.js';
 
 const TYPE_CH = ' pnbrqk';
@@ -23,11 +23,22 @@ const QUALITY = {
   low: { shadow: 512, dpr: 1, shadows: false }
 };
 
+const BG_LOOK = {
+  wood:   { sky: ['#120c08', '#120c08'], fog: 0x120c08, near: 26, far: 62, table: 'wood', tRough: 0.55, tMetal: 0, tEnv: 0.4, sun: 0xfff0d8, sunI: 3.4, warm: 0xffc27a, warmI: 60, fillC: 0xb9c8ff, fillI: 0.7, hemiS: 0xfff0dc, hemiG: 0x2a1a10, hemiI: 0.35, env: 0.45, exp: 1.0 },
+  palace: { sky: ['#0e0407', '#4d1424'], fog: 0x4d1424, near: 24, far: 64, table: 'palace', tRough: 0.22, tMetal: 0.05, tEnv: 0.8, sun: 0xffd9a8, sunI: 3.0, warm: 0xffa550, warmI: 120, fillC: 0xff9a7a, fillI: 0.5, hemiS: 0xffc89a, hemiG: 0x2a0a10, hemiI: 0.4, env: 0.5, exp: 1.05, fx: 'dust',
+            glows: [[-10, 2.2, -10, 0xffb35a, 7], [10, 2.2, -10, 0xffb35a, 7], [-12, 2.2, 6, 0xffb35a, 6], [12, 2.2, 6, 0xffb35a, 6]] },
+  garden: { sky: ['#2c3b86', '#ffb06b'], fog: 0xffb06b, near: 28, far: 80, table: 'grass', tRough: 0.9, tMetal: 0, tEnv: 0.25, sun: 0xffd2a0, sunI: 3.6, warm: 0xffb070, warmI: 45, fillC: 0x9ab4ff, fillI: 0.6, hemiS: 0xffd8b0, hemiG: 0x2a4a2a, hemiI: 0.5, env: 0.45, exp: 1.0, fx: 'fireflies',
+            glows: [[-34, 7, -60, 0xffc27a, 46], [-34, 7, -60, 0xfff0c0, 12]] },
+  night:  { sky: ['#01020a', '#14204a'], fog: 0x14204a, near: 26, far: 70, table: 'glass', tRough: 0.14, tMetal: 0.6, tEnv: 1.1, sun: 0xbcd0ff, sunI: 2.4, warm: 0x6a8cff, warmI: 40, fillC: 0x8aa0ff, fillI: 0.8, hemiS: 0x6c7cff, hemiG: 0x05060f, hemiI: 0.3, env: 0.4, exp: 1.0, fx: 'stars',
+            glows: [[36, 30, -62, 'moon', 22]] },
+  snow:   { sky: ['#8aaed8', '#e6eef9'], fog: 0xe6eef9, near: 20, far: 72, table: 'snow', tRough: 0.8, tMetal: 0, tEnv: 0.5, sun: 0xeaf2ff, sunI: 3.0, warm: 0xdfe9ff, warmI: 30, fillC: 0xbcd0ff, fillI: 0.8, hemiS: 0xeaf2ff, hemiG: 0x8aa0c0, hemiI: 0.7, env: 0.6, exp: 0.95, fx: 'snow' }
+};
+
 export class ChessScene {
   constructor(canvas) {
     this.canvas = canvas; this.pieces = new Map(); this.tweens = []; this.speed = 1; this.t = 0; this.onPick = null;
     this.all = new Set(); this.set = 'royal'; this.scheme = 'ivory'; this.boardKey = 'wood'; this.quality = 'high'; this.tpl = {}; this.mats = null;
-    this.targets = []; this.hl = {}; this.cine = true; this.frames = 0; this.acc = 0; this.noAdapt = new URLSearchParams(location.search).has('fast'); this.shake = 0; this.maxDt = new URLSearchParams(location.search).has('fast') ? 0.4 : 0.05; this.running = true; this.menuSpin = false; this.camTween = null;
+    this.targets = []; this.hl = {}; this.custom = null; this.customJson = ''; this.cine = true; this.labels = 'icons'; this.labelCache = {}; this.frames = 0; this.acc = 0; this.noAdapt = new URLSearchParams(location.search).has('fast'); this.shake = 0; this.maxDt = new URLSearchParams(location.search).has('fast') ? 0.4 : 0.05; this.running = true; this.menuSpin = false; this.camTween = null;
     const r = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     r.shadowMap.enabled = true; r.shadowMap.type = THREE.PCFSoftShadowMap; r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.0;
     const sc = this.scene = new THREE.Scene(); sc.background = new THREE.Color(0x120c08); sc.fog = new THREE.Fog(0x120c08, 26, 62);
@@ -37,18 +48,18 @@ export class ChessScene {
     c.enablePan = false; c.enableDamping = true; c.dampingFactor = 0.09; c.rotateSpeed = 0.65; c.zoomSpeed = 0.7; c.minPolarAngle = 0.12; c.maxPolarAngle = 1.36; c.target.set(0, 0.1, 0.5);
     c.autoRotateSpeed = 0.9;
     // lights
-    sc.add(new THREE.HemisphereLight(0xfff0dc, 0x2a1a10, 0.35));
+    const hemi = this.hemi = new THREE.HemisphereLight(0xfff0dc, 0x2a1a10, 0.35); sc.add(hemi);
     const sun = this.sun = new THREE.DirectionalLight(0xfff0d8, 3.4); sun.position.set(6, 12, 7); sun.castShadow = true;
     const sh = sun.shadow.camera; sh.left = -8; sh.right = 8; sh.top = 8; sh.bottom = -8; sh.near = 2; sh.far = 40; sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03; sun.shadow.radius = 3;
     sc.add(sun); sc.add(sun.target);
-    const fill = new THREE.DirectionalLight(0xb9c8ff, 0.7); fill.position.set(-8, 6, -6); sc.add(fill);
-    const warm = new THREE.PointLight(0xffc27a, 60, 40, 1.6); warm.position.set(0, 7, 0); sc.add(warm);
+    const fill = this.fill = new THREE.DirectionalLight(0xb9c8ff, 0.7); fill.position.set(-8, 6, -6); sc.add(fill);
+    const warm = this.warm = new THREE.PointLight(0xffc27a, 60, 40, 1.6); warm.position.set(0, 7, 0); sc.add(warm);
     this.boardGroup = new THREE.Group(); this.pieceRoot = new THREE.Group(); this.hlGroup = new THREE.Group(); this.fx = new THREE.Group();
     sc.add(this.boardGroup, this.hlGroup, this.pieceRoot, this.fx);
     this.glowRed = glowTexture('rgba(255,60,50,1)'); this.glowGreen = glowTexture('rgba(90,255,150,1)'); this.glowGold = glowTexture('rgba(255,220,90,1)'); this.dot = softDot();
     this.sprites = []; for (let i = 0; i < 70; i++) { const m = new THREE.SpriteMaterial({ map: this.dot, transparent: true, depthWrite: false, opacity: 0 }); const s = new THREE.Sprite(m); s.visible = false; s.userData = { life: 0 }; this.fx.add(s); this.sprites.push(s); }
     this.ray = new THREE.Raycaster(); this.plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-    this.applyQuality(this.quality); this.buildBoard(); this.buildMaterials();
+    this.applyQuality(this.quality); this.buildBoard(); this.buildMaterials(); this.bgKey = null; this.setBackground('wood');
     this.bindInput(); this.last = performance.now();
     new ResizeObserver(() => this.resize()).observe(canvas.parentElement || canvas); this.resize();
     this.resetCamera('white', true);
@@ -87,7 +98,7 @@ export class ChessScene {
   buildBoard() {
     const g = this.boardGroup; while (g.children.length) { const o = g.children.pop(); o.geometry && o.geometry.dispose(); }
     if (this.texs) for (const k of ['squares', 'frame', 'table']) this.texs[k].dispose();
-    const T = this.texs = makeBoardTextures(this.boardKey, this.renderer), th = T.theme;
+    const T = this.texs = makeBoardTextures(this.boardKey, this.renderer, this.custom), th = T.theme;
     const frameTop = new THREE.MeshStandardMaterial({ map: T.frame, roughness: 0.55, metalness: 0.05, envMapIntensity: 0.5 });
     const side = new THREE.MeshStandardMaterial({ color: th.frame, roughness: 0.6 });
     const slab = new THREE.Mesh(new RoundedBoxGeometry(10.6, 0.55, 10.6, 4, 0.12), [side, side, frameTop, side, side, side]);
@@ -96,18 +107,60 @@ export class ChessScene {
     sq.rotation.x = -Math.PI / 2; sq.position.y = 0.002; sq.receiveShadow = true; g.add(sq);
     const trim = new THREE.MeshStandardMaterial({ color: th.trim, metalness: 0.9, roughness: 0.3, envMapIntensity: 1.0 });
     for (const [w, d, x, z] of [[8.16, 0.08, 0, -4.04], [8.16, 0.08, 0, 4.04], [0.08, 8.16, -4.04, 0], [0.08, 8.16, 4.04, 0]]) { const b = new THREE.Mesh(new THREE.BoxGeometry(w, 0.07, d), trim); b.position.set(x, 0.03, z); b.receiveShadow = true; g.add(b); }
-    T.table.repeat.set(5, 5); T.table.needsUpdate = true;
-    const table = new THREE.Mesh(new THREE.PlaneGeometry(90, 90), new THREE.MeshStandardMaterial({ map: T.table, roughness: 0.55, metalness: 0, envMapIntensity: 0.4 }));
-    table.rotation.x = -Math.PI / 2; table.position.y = -0.56; table.receiveShadow = true; g.add(table);
   }
-  setStyle({ board, pcolor, set, quality, speed, cinema }) {
+  setStyle({ board, pcolor, set, quality, speed, cinema, labels, bg, custom }) {
+    if (custom) { const j = JSON.stringify(custom); if (j !== this.customJson) { this.customJson = j; this.custom = custom; if ((board || this.boardKey) === 'custom') { this.boardKey = 'custom'; this.buildBoard(); } } }
+    if (bg && bg !== this.bgKey) this.setBackground(bg);
     if (speed !== undefined) this.speed = speed;
+    if (labels !== undefined && labels !== this.labels) { this.labels = labels; for (const p of this.all) this.addLabel(p); }
     if (cinema !== undefined) this.cine = cinema;
     if (quality && quality !== this.quality) this.applyQuality(quality);
     let rebuildPieces = false;
     if (board && board !== this.boardKey) { this.boardKey = board; this.buildBoard(); }
     if ((pcolor && pcolor !== this.scheme) || (set && set !== this.set)) { if (pcolor) this.scheme = pcolor; if (set) this.set = set; this.buildMaterials(); rebuildPieces = true; }
-    if (rebuildPieces) { const lay = [...this.pieces.values()].map(p => ({ type: p.type, color: p.color, sq: p.sq })); this.clearPieces(); for (const l of lay) this.spawn(l.type, l.color, l.sq); }
+    if (rebuildPieces) { this.labelCache = {}; const lay = [...this.pieces.values()].map(p => ({ type: p.type, color: p.color, sq: p.sq })); this.clearPieces(); for (const l of lay) this.spawn(l.type, l.color, l.sq); }
+  }
+
+  /* ---------- backgrounds (sky, floor, lighting, ambient effects) ---------- */
+  setBackground(key) {
+    const L = BG_LOOK[key] || BG_LOOK.wood; this.bgKey = key; const sc = this.scene;
+    if (sc.background && sc.background.isTexture) sc.background.dispose(); sc.background = skyTexture([L.sky[0], L.sky[1], L.sky[1]]);
+    sc.fog.color.setHex(L.fog); sc.fog.near = L.near; sc.fog.far = L.far;
+    if (this.tableMesh) { this.boardGroup.remove(this.tableMesh); this.tableMesh.material.map.dispose(); this.tableMesh.material.dispose(); this.tableMesh.geometry.dispose(); }
+    const m = new THREE.MeshStandardMaterial({ map: makeTableTexture(L.table, this.renderer), roughness: L.tRough, metalness: L.tMetal, envMapIntensity: L.tEnv });
+    this.tableMesh = new THREE.Mesh(new THREE.PlaneGeometry(120, 120), m); this.tableMesh.rotation.x = -Math.PI / 2; this.tableMesh.position.y = -0.56; this.tableMesh.receiveShadow = true; this.boardGroup.add(this.tableMesh);
+    this.sun.color.setHex(L.sun); this.sun.intensity = L.sunI; this.warm.color.setHex(L.warm); this.warm.intensity = L.warmI; this.fill.color.setHex(L.fillC); this.fill.intensity = L.fillI;
+    this.hemi.color.setHex(L.hemiS); this.hemi.groundColor.setHex(L.hemiG); this.hemi.intensity = L.hemiI; sc.environmentIntensity = L.env; this.renderer.toneMappingExposure = L.exp;
+    this.buildBgFx(L);
+  }
+  buildBgFx(L) {
+    if (this.bgFx) { this.scene.remove(this.bgFx.group); this.bgFx.group.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) { if (o.material.map && o.material.map !== this.dot && o.material.map !== this.glowGold) o.material.map.dispose(); o.material.dispose(); } }); this.bgFx = null; }
+    if (!L.fx && !L.glows) return;
+    const group = new THREE.Group(), rnd = (a, b) => a + Math.random() * (b - a); let upd = () => {};
+    for (const [x, y, z, col, sz] of (L.glows || [])) {      // soft light halos (candles, sun, moon)
+      const isMoon = col === 'moon'; const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: isMoon ? moonTexture() : this.glowGold, color: isMoon ? 0xffffff : col, transparent: true, depthWrite: false, blending: isMoon ? THREE.NormalBlending : THREE.AdditiveBlending, fog: false, toneMapped: false }));
+      sp.position.set(x, y, z); sp.scale.setScalar(sz || 5); sp.renderOrder = -1; group.add(sp);
+    }
+    if (L.fx) {
+      const kind = L.fx, N = { dust: 90, fireflies: 46, stars: 800, snow: 280 }[kind], pos = new Float32Array(N * 3), vel = new Float32Array(N * 3);
+      for (let i = 0; i < N; i++) {
+        if (kind === 'stars') { const a = rnd(0, 6.283), e = rnd(0.12, 1.45), r = 95; pos[i * 3] = Math.cos(a) * Math.cos(e) * r; pos[i * 3 + 1] = Math.sin(e) * r; pos[i * 3 + 2] = Math.sin(a) * Math.cos(e) * r; }
+        else { pos[i * 3] = rnd(-16, 16); pos[i * 3 + 1] = rnd(0.3, kind === 'snow' ? 14 : 8); pos[i * 3 + 2] = rnd(-16, 16); vel[i * 3] = rnd(-0.3, 0.3); vel[i * 3 + 1] = kind === 'snow' ? -rnd(0.5, 1.3) : rnd(0.05, 0.3); vel[i * 3 + 2] = rnd(-0.3, 0.3); }
+      }
+      const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      const mat = new THREE.PointsMaterial({ map: this.dot, color: { dust: 0xffd9a0, fireflies: 0xe6ff7a, stars: 0xffffff, snow: 0xffffff }[kind], size: { dust: 0.2, fireflies: 0.32, stars: 2.6, snow: 0.22 }[kind], sizeAttenuation: kind !== 'stars', transparent: true, depthWrite: false, blending: kind === 'snow' ? THREE.NormalBlending : THREE.AdditiveBlending, opacity: 0.9, fog: false });
+      const pts = new THREE.Points(geo, mat); pts.frustumCulled = false; group.add(pts);
+      upd = (dt, t) => {
+        if (kind === 'stars') { mat.opacity = 0.75 + 0.25 * Math.sin(t * 1.7); pts.rotation.y += dt * 0.004; return; }
+        const a = geo.attributes.position.array;
+        for (let i = 0; i < N; i++) {
+          const k = i * 3; a[k] += (vel[k] + (kind === 'snow' ? Math.sin(t + i) * 0.25 : Math.sin(t * 0.8 + i) * 0.2)) * dt; a[k + 1] += vel[k + 1] * dt; a[k + 2] += (vel[k + 2] + (kind === 'fireflies' ? Math.cos(t * 0.9 + i) * 0.3 : 0)) * dt;
+          if (a[k + 1] < 0.1) a[k + 1] = kind === 'snow' ? 14 : 8; if (a[k + 1] > (kind === 'snow' ? 14.5 : 8.5)) a[k + 1] = 0.3; if (a[k] > 16) a[k] = -16; if (a[k] < -16) a[k] = 16; if (a[k + 2] > 16) a[k + 2] = -16; if (a[k + 2] < -16) a[k + 2] = 16;
+        }
+        geo.attributes.position.needsUpdate = true; if (kind === 'fireflies') mat.opacity = 0.55 + 0.45 * Math.sin(t * 2.3);
+      };
+    }
+    this.scene.add(group); this.bgFx = { group, update: upd };
   }
 
   /* ---------- pieces ---------- */
@@ -122,12 +175,32 @@ export class ChessScene {
     root.rotation.order = 'YXZ'; tilt.rotation.order = 'YXZ'; tilt.add(content); root.add(tilt);
     const legs = []; content.traverse(o => { if (o.userData.leg) legs.push(o); });
     const p = { type, color, sq, root, tilt, content, legs, restYaw: color === 0 ? Math.PI : 0, height: tpl.height, base: null };
-    const bm = content.getObjectByName('base');          // animals keep a flat base that glides on the board while the animal moves above it
-    if (bm) { bm.parent.remove(bm); p.base = new THREE.Group(); p.base.add(bm); this.pieceRoot.add(p.base); }
+    const bm = content.getObjectByName('base');          // animals keep a flat base (+ team ring) that glides on the board while the animal moves above it
+    if (bm) { p.base = new THREE.Group(); for (const nm of ['base', 'ring']) { const m = content.getObjectByName(nm); if (m) { m.parent.remove(m); p.base.add(m); } } this.pieceRoot.add(p.base); }
     const mark = o => o.traverse(m => { if (m.isMesh) m.userData.piece = p; }); mark(content); if (p.base) mark(p.base);
-    this.all.add(p);
+    this.all.add(p); this.addLabel(p);
     const [x, z] = sqPos(sq); root.position.set(x, 0.002, z); root.rotation.y = p.restYaw; root.scale.setScalar(scale);
     this.pieceRoot.add(root); this.pieces.set(sq, p); if (p.base) p.base.position.set(x, 0.002, z); return p;
+  }
+  /* floating badge above each piece: what it is + which team (ivory = White, dark = Black, gold/red border) */
+  labelTexture(type, color) {
+    const key = `${this.labels}|${this.set}|${type}|${color}`; if (this.labelCache[key]) return this.labelCache[key];
+    const c = document.createElement('canvas'); c.width = c.height = 160; const x = c.getContext('2d');
+    const white = color === 0, fill = white ? '#f6ecd2' : '#1b1514', edge = white ? '#d9a62e' : '#d0323b', ink = white ? '#2a1a0a' : '#f6ecd2';
+    x.shadowColor = 'rgba(0,0,0,.55)'; x.shadowBlur = 10; x.shadowOffsetY = 3;
+    x.fillStyle = fill; x.beginPath(); x.arc(80, 78, 62, 0, 7); x.fill(); x.shadowColor = 'transparent';
+    x.lineWidth = 11; x.strokeStyle = edge; x.stroke();
+    const royal = this.set === 'royal', glyph = { p: '♟\uFE0E', n: royal ? '🐴' : '♞\uFE0E', b: royal ? '🐪' : '♝\uFE0E', r: royal ? '🐘' : '♜\uFE0E', q: '♛\uFE0E', k: '♚\uFE0E' }[type], letter = { p: 'P', n: 'N', b: 'B', r: 'R', q: 'Q', k: 'K' }[type];
+    x.textAlign = 'center'; x.textBaseline = 'middle';
+    if (this.labels === 'letters') { x.fillStyle = ink; x.font = '900 82px Georgia, serif'; x.fillText(letter, 80, 84); }
+    else { const emoji = /\p{Extended_Pictographic}/u.test(glyph) && !glyph.includes('\uFE0E'); x.fillStyle = ink; x.font = emoji ? '74px "Noto Color Emoji","Apple Color Emoji","Segoe UI Emoji",sans-serif' : '900 86px "DejaVu Sans","Segoe UI Symbol",serif'; x.fillText(glyph, 80, emoji ? 86 : 84); }
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return (this.labelCache[key] = t);
+  }
+  addLabel(p) {
+    if (p.label) { p.root.remove(p.label); p.label.material.dispose(); p.label = null; }
+    if (this.labels === 'off') return;
+    const m = new THREE.SpriteMaterial({ map: this.labelTexture(p.type, p.color), transparent: true, depthTest: false, depthWrite: false, toneMapped: false });
+    const sp = new THREE.Sprite(m); sp.scale.setScalar(0.62); sp.position.set(0, p.height + 0.42, 0); sp.renderOrder = 6; sp.userData.piece = p; p.label = sp; p.root.add(sp);
   }
   setPivot(p, z) { p.tilt.position.z = z; p.content.position.z = -z; }
 
@@ -245,6 +318,7 @@ export class ChessScene {
     if (this.hl.check && this.hl.check.visible) this.hl.check.material.opacity = 0.7 + 0.3 * Math.sin(this.t * 7);
     if (this.hl.hintB && this.hl.hintB.visible) { const o = 0.5 + 0.3 * Math.sin(this.t * 6); this.hl.hintA.material.opacity = o * 0.7; this.hl.hintB.material.opacity = o; }
     if (this.hl.sel && this.hl.sel.visible) this.hl.sel.material.opacity = 0.4 + 0.15 * Math.sin(this.t * 5);
+    if (this.bgFx) this.bgFx.update(dt, this.t);
     for (const p of this.all) if (p.base) { p.base.position.set(p.root.position.x, 0.002, p.root.position.z); p.base.scale.setScalar(p.root.scale.x); }
     this.controls.update();
     if (this.shake > 0.0004) { this.camera.rotateX((Math.random() - 0.5) * this.shake); this.camera.rotateY((Math.random() - 0.5) * this.shake); this.shake *= Math.pow(0.02, dt); }
