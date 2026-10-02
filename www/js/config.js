@@ -19,6 +19,7 @@ export const CFG = {
   hintsPerGame: 3, undosPerGame: 3
 };
 export const BOARDS = {
+  bw:         { name: 'Black & White',  cost: 0,   light: '#f2f1ec', dark: '#25252a' },
   wood:       { name: 'Classic Wood',   cost: 0,   light: '#eed3a4', dark: '#7c4a2a' },
   tournament: { name: 'Tournament',     cost: 0,   light: '#eeeed2', dark: '#6f9a52' },
   walnut:     { name: 'Dark Walnut',    cost: 0,   light: '#d9b88a', dark: '#4e3020' },

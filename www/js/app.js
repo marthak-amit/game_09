@@ -34,10 +34,22 @@ bus.toast = toast;
 const scene = new ChessScene($('#c'));
 const G = { mode: null, human: 0, level: 2, board: null, moves: [], sans: [], legal: [], over: false, busy: false, thinking: false, sel: -1, targets: [], clocks: [0, 0], tc: TIMES[0], hints: 0, undos: 0, paused: false, startFen: E.START_FEN, id: 0, tick: null, captured: [[], []], lastMove: null };
 
-function applyStyle() { scene.setStyle({ board: Save.d.board, pcolor: Save.d.pcolor, set: Save.d.set, quality: Save.d.quality, speed: Save.d.speed, cinema: Save.d.cinema, labels: Save.d.labels, bg: Save.d.bg, custom: Save.d.customBoard }); }
+function applyStyle() { scene.setStyle({ board: Save.d.board, pcolor: Save.d.pcolor, set: Save.d.set, quality: Save.d.quality, speed: Save.d.speed, cinema: Save.d.cinema, labels: Save.d.labels, bg: Save.d.bg, custom: Save.d.customBoard }); syncQuick(); }
 applyStyle();
 scene.onQuality = q => toast('Graphics set to ' + q + ' for smooth play', 2600);
 
+function syncQuick() {
+  const b = BOARDS[Save.d.board] || BOARDS.bw, c = Save.d.board === 'custom' ? Save.d.customBoard : b;
+  $('#qBoard .qsw').style.background = `linear-gradient(135deg,${c.light} 50%,${c.dark} 50%)`; $('#qPieces .qg').textContent = Save.d.set === 'royal' ? '🐴' : '♞\uFE0E';
+}
+$('#qBoard').onclick = () => {
+  Sfx.init(); Sfx.click(); const owned = Object.keys(BOARDS).filter(k => Save.d.boards.includes(k)), next = owned[(owned.indexOf(Save.d.board) + 1) % owned.length];
+  Save.d.board = next; Save.save(); applyStyle(); syncQuick(); toast('Board: ' + BOARDS[next].name, 1500);
+};
+$('#qPieces').onclick = () => {
+  Sfx.init(); Sfx.click(); Save.d.set = Save.d.set === 'royal' ? 'staunton' : 'royal'; Save.save(); applyStyle(); syncQuick(); if (G.board) updateHud();
+  toast(Save.d.set === 'royal' ? 'Pieces: Royal Animals 🐴🐘🐪' : 'Pieces: Classic Staunton ♞♜♝', 1500);
+};
 let toastT;
 function toast(msg, ms = 1900) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), ms); }
 function modal(html) { $('#card').innerHTML = html; $('#card').dataset.dismiss = '0'; $('#modal').classList.remove('hidden'); G.paused = G.mode && !G.over ? true : G.paused; }
@@ -410,7 +422,7 @@ function showSettings() {
    ${d.board === 'custom' ? `<div class="custom"><label>Light squares<input type="color" data-cb="light" value="${d.customBoard.light}"></label><label>Dark squares<input type="color" data-cb="dark" value="${d.customBoard.dark}"></label></div>
    <div class="chips">${[['wood', 'Wood grain'], ['felt', 'Matte'], ['glass', 'Glossy']].map(([f, l]) => `<button class="opt ${d.customBoard.finish === f ? 'on' : ''}" data-act="cfinish" data-a="${f}">${l}</button>`).join('')}</div>` : ''}
    <h3>Background</h3><div class="chips">${Object.entries(BGS).filter(([k]) => d.bgs.includes(k)).map(([k, v]) => `<button class="opt ${d.bg === k ? 'on' : ''}" data-act="pick" data-a="bg:${k}">${v.icon}<small>${v.name}</small></button>`).join('')}<button class="opt" data-act="toShopBg">🛍<small>More in shop</small></button></div>
-   <h3>Piece badges (shows what each piece is)</h3><div class="chips">${opts('labels', [['icons', 'Icons'], ['letters', 'Letters'], ['off', 'Off']])}</div>
+   <h3>Piece icons (who is who)</h3><div class="chips">${opts('labels', [['border', 'On board border'], ['above', 'Above pieces'], ['off', 'Off']])}</div>
    <h3>Graphics</h3><div class="chips">${opts('quality', [['auto', 'Auto'], ['high', 'High'], ['medium', 'Medium'], ['low', 'Low']])}</div>
    <h3>Animation speed</h3><div class="chips">${opts('speed', [[0.7, 'Slow'], [1, 'Normal'], [1.6, 'Fast']])}</div>
    <div class="col"><button class="btn dark" data-act="restore">Restore purchases</button><button class="btn gold" data-act="close">Done</button></div>`);
@@ -427,7 +439,7 @@ $('#btnStats').onclick = () => { Sfx.click(); const s = Save.d.stats;
   modal(`<h2>Your Stats</h2><div class="stat"><span>Rating</span><span>${Save.d.rating}</span></div><div class="stat"><span>Games vs computer</span><span>${s.games}</span></div><div class="stat"><span>Wins</span><span>${s.wins}</span></div><div class="stat"><span>Draws</span><span>${s.draws}</span></div><div class="stat"><span>Losses</span><span>${s.losses}</span></div><div class="stat"><span>Strongest opponent beaten</span><span>${s.best || '—'}</span></div><div class="col"><button class="btn gold" data-act="close">Close</button></div>`); $('#card').dataset.dismiss = '1'; };
 function showGuide() {
   const set = Save.d.set, rows = ['k', 'q', 'r', 'b', 'n', 'p'].map(t => { const [g, name, desc] = PINFO[set][t]; return `<div class="gi"><div class="gg">${g}</div><div><b>${name}</b><span>${desc}</span></div></div>`; }).join('');
-  modal(`<h2>Meet the pieces</h2><p style="margin:2px 0 6px">Every piece wears a badge so you always know who is who.</p>
+  modal(`<h2>Meet the pieces</h2><p style="margin:2px 0 6px">The icons on the board's <b>border</b> show every piece. Tap a piece and its icon lights up.</p>
    <div class="teams"><div class="tw">⚪ White<br><small>ivory pieces · gold ring</small></div><div class="tb">⚫ Black<br><small>dark pieces · red ring</small></div></div>
    <div class="guide">${rows}</div><div class="col"><button class="btn gold" data-act="close">Got it</button></div>`); $('#card').dataset.dismiss = '1';
 }

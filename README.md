@@ -13,14 +13,15 @@ Every piece looks like what it is — and **moves like it**:
 Prefer tournament pieces? Settings → *Piece style* → **Classic Staunton** (carved horse-head knight, crenellated rook, mitre bishop).
 
 ## Always know who is who
-- **Piece badges** float above every piece (🐴 🐘 🐪 ♛ ♚ ♟) – ivory with a gold border for White, dark with a red border for Black. Switch to letters (K Q R B N P) or turn them off in Settings
+- **Piece icons on the board's border panel** – White's set (🐴 🐘 🐪 ♛ ♚ ♟, ivory with a gold ring) runs along the bottom edge, Black's set (dark with a red ring) along the top edge, upside-down so Black reads it from their side. Tap a piece and its icon on the border **glows**. Prefer them floating above the pieces, or off? Settings → *Piece icons*
 - **Team rings** on every base: gold = White, red = Black
 - **Turn banner** under the top bar: *"Your move · White"*, *"Computer's move · Black"*, *"⚠ CHECK"*
 - **Name card** when you tap a piece: *"🐴 Horse (Knight) · White – leaps in an L-shape…"*
+- **Two quick switches** in the game dock: **Board** (cycles your board colours) and **Pieces** (Royal Animals ↔ Classic Staunton) – always on, one tap
 - Player bars show your colour; **Help → Meet the pieces** explains every piece
 
 ## Board colours & pawn promotion
-- **12 board colour themes** (4 free + Custom, the rest unlocked with coins) – Classic Wood, Tournament green, Dark Walnut, Slate, Black Marble, Emerald, Ruby, Ocean, Royal Purple, Candy Pink, Sapphire – and a **Custom** board where you pick any two square colours and a finish (wood / matte / glossy). Change them any time in Settings
+- **Black & White** is the default board. **13 board colour themes** (4 free + Custom, the rest unlocked with coins) – Classic Wood, Tournament green, Dark Walnut, Slate, Black Marble, Emerald, Ruby, Ocean, Royal Purple, Candy Pink, Sapphire – and a **Custom** board where you pick any two square colours and a finish (wood / matte / glossy). Change them any time in Settings
 - **Pawn promotion** always asks: Queen, Rook, Bishop or Knight (Elephant / Camel / Horse in the animal set), in your team's colours, with a Cancel option. The dialog can't be dismissed by a stray tap
 
 ## Backgrounds

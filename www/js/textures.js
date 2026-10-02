@@ -15,6 +15,7 @@ const css = (c, a = 1) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
 const clamp255 = v => v < 0 ? 0 : v > 255 ? 255 : v;
 
 export const THEMES = {
+  bw:       { light: 0xf2f1ec, dark: 0x25252a, frame: 0x17171a, trim: 0xc9ccd4, label: 0xd9dbe2, type: 'felt' },
   wood: { light: 0xeed3a4, dark: 0x7c4a2a, frame: 0x4a2a18, trim: 0xd9ad4a, label: 0xe8c98a, type: 'wood' },
   marble: { light: 0xeeeae3, dark: 0x2a2a2e, frame: 0x1c1a1a, trim: 0xd4af37, label: 0xd9c27a, type: 'marble', veinL: 0x8a8f99, veinD: 0xcaa646 },
   emerald: { light: 0xe8dfc2, dark: 0x2f6e52, frame: 0x3b2316, trim: 0xe0b84e, label: 0xe8d9a0, type: 'felt' },
@@ -85,7 +86,7 @@ function paintSquares(theme, seed) {
 }
 
 function paintFrame(theme, seed) {
-  const S = 1536, c = canvas(S, S), ctx = c.getContext('2d'), unit = S / 10.6;   // slab is 10.6 wide
+  const S = 1536, c = canvas(S, S), ctx = c.getContext('2d'), unit = S / 11;   // slab is 11 wide
   const wood = theme.type === 'marble' ? 0x1b1a1c : theme.frame;
   woodPatch(ctx, 0, 0, S, S, wood, seed + 77, false);
   const inner = 4 * unit;      // board half width in px
@@ -171,4 +172,25 @@ export function moonTexture() {
   g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.35, 'rgba(235,242,255,1)'); g.addColorStop(0.42, 'rgba(190,210,255,.35)'); g.addColorStop(1, 'rgba(120,150,255,0)');
   x.fillStyle = g; x.fillRect(0, 0, 256, 256); x.fillStyle = 'rgba(160,175,205,.35)'; for (const [cx, cy, r] of [[110, 110, 14], [146, 124, 9], [122, 150, 11]]) { x.beginPath(); x.arc(cx, cy, r, 0, 7); x.fill(); }
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+
+/** piece legend painted on the board's border panel: White's icons along the bottom edge, Black's along the top edge (upside-down for Black's view) */
+export function makeLegendTexture(set) {
+  const S = 1536, c = canvas(S, S), x = c.getContext('2d'), unit = S / 11, royal = set === 'royal';
+  const G = { k: '♚\uFE0E', q: '♛\uFE0E', r: royal ? '🐘' : '♜\uFE0E', b: royal ? '🐪' : '♝\uFE0E', n: royal ? '🐴' : '♞\uFE0E', p: '♟\uFE0E' }, order = ['k', 'q', 'r', 'b', 'n', 'p'];
+  const row = (color, yOff, flip) => {
+    x.save(); x.translate(S / 2, S / 2 + yOff * unit); if (flip) x.rotate(Math.PI);
+    order.forEach((t, i) => {
+      const px = (i - 2.5) * 1.3 * unit, white = color === 0;
+      x.shadowColor = 'rgba(0,0,0,.55)'; x.shadowBlur = 10; x.shadowOffsetY = 3;
+      x.fillStyle = white ? '#f6ecd2' : '#1b1514'; x.beginPath(); x.arc(px, 0, unit * 0.32, 0, 7); x.fill(); x.shadowColor = 'transparent';
+      x.lineWidth = unit * 0.05; x.strokeStyle = white ? '#d9a62e' : '#d0323b'; x.stroke();
+      x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = white ? '#2a1a0a' : '#f6ecd2';
+      const emoji = !G[t].includes('\uFE0E'); x.font = emoji ? `${unit * 0.37}px "Noto Color Emoji","Apple Color Emoji","Segoe UI Emoji",sans-serif` : `900 ${unit * 0.44}px "DejaVu Sans","Segoe UI Symbol",serif`;
+      x.fillText(G[t], px, emoji ? unit * 0.03 : unit * 0.02);
+    });
+    x.restore();
+  };
+  row(0, 5.05, false); row(1, -5.05, true);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t;
 }

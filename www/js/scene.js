@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { buildPiece, makeMaterials, SCHEMES } from './pieces.js';
-import { makeBoardTextures, makeTableTexture, skyTexture, moonTexture, glowTexture, softDot } from './textures.js';
+import { makeBoardTextures, makeTableTexture, makeLegendTexture, skyTexture, moonTexture, glowTexture, softDot } from './textures.js';
 import { Sfx } from './audio.js';
 
 const TYPE_CH = ' pnbrqk';
@@ -38,7 +38,7 @@ export class ChessScene {
   constructor(canvas) {
     this.canvas = canvas; this.pieces = new Map(); this.tweens = []; this.speed = 1; this.t = 0; this.onPick = null;
     this.all = new Set(); this.set = 'royal'; this.scheme = 'ivory'; this.boardKey = 'wood'; this.quality = 'high'; this.tpl = {}; this.mats = null;
-    this.targets = []; this.hl = {}; this.custom = null; this.customJson = ''; this.cine = true; this.labels = 'icons'; this.labelCache = {}; this.frames = 0; this.acc = 0; this.noAdapt = new URLSearchParams(location.search).has('fast'); this.shake = 0; this.maxDt = new URLSearchParams(location.search).has('fast') ? 0.4 : 0.05; this.running = true; this.menuSpin = false; this.camTween = null;
+    this.targets = []; this.hl = {}; this.custom = null; this.customJson = ''; this.cine = true; this.labels = 'border'; this.labelCache = {}; this.frames = 0; this.acc = 0; this.noAdapt = new URLSearchParams(location.search).has('fast'); this.shake = 0; this.maxDt = new URLSearchParams(location.search).has('fast') ? 0.4 : 0.05; this.running = true; this.menuSpin = false; this.camTween = null;
     const r = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     r.shadowMap.enabled = true; r.shadowMap.type = THREE.PCFSoftShadowMap; r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.0;
     const sc = this.scene = new THREE.Scene(); sc.background = new THREE.Color(0x120c08); sc.fog = new THREE.Fog(0x120c08, 26, 62);
@@ -101,10 +101,12 @@ export class ChessScene {
     const T = this.texs = makeBoardTextures(this.boardKey, this.renderer, this.custom), th = T.theme;
     const frameTop = new THREE.MeshStandardMaterial({ map: T.frame, roughness: 0.55, metalness: 0.05, envMapIntensity: 0.5 });
     const side = new THREE.MeshStandardMaterial({ color: th.frame, roughness: 0.6 });
-    const slab = new THREE.Mesh(new RoundedBoxGeometry(10.6, 0.55, 10.6, 4, 0.12), [side, side, frameTop, side, side, side]);
+    const slab = new THREE.Mesh(new RoundedBoxGeometry(11, 0.55, 11, 4, 0.12), [side, side, frameTop, side, side, side]);
     slab.position.y = -0.275; slab.receiveShadow = true; slab.castShadow = true; g.add(slab);
     const sq = new THREE.Mesh(new THREE.PlaneGeometry(8, 8), new THREE.MeshStandardMaterial({ map: T.squares, roughness: th.type === 'marble' || th.type === 'glass' ? 0.22 : 0.5, metalness: 0, envMapIntensity: 0.6 }));
     sq.rotation.x = -Math.PI / 2; sq.position.y = 0.002; sq.receiveShadow = true; g.add(sq);
+    this.legendMesh = new THREE.Mesh(new THREE.PlaneGeometry(11, 11), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, toneMapped: false, color: 0xf2f2f2 }));
+    this.legendMesh.rotation.x = -Math.PI / 2; this.legendMesh.position.y = 0.004; this.legendMesh.renderOrder = 1; g.add(this.legendMesh); this.legendSet = null; this.updateLegend();
     const trim = new THREE.MeshStandardMaterial({ color: th.trim, metalness: 0.9, roughness: 0.3, envMapIntensity: 1.0 });
     for (const [w, d, x, z] of [[8.16, 0.08, 0, -4.04], [8.16, 0.08, 0, 4.04], [0.08, 8.16, -4.04, 0], [0.08, 8.16, 4.04, 0]]) { const b = new THREE.Mesh(new THREE.BoxGeometry(w, 0.07, d), trim); b.position.set(x, 0.03, z); b.receiveShadow = true; g.add(b); }
   }
@@ -112,13 +114,13 @@ export class ChessScene {
     if (custom) { const j = JSON.stringify(custom); if (j !== this.customJson) { this.customJson = j; this.custom = custom; if ((board || this.boardKey) === 'custom') { this.boardKey = 'custom'; this.buildBoard(); } } }
     if (bg && bg !== this.bgKey) this.setBackground(bg);
     if (speed !== undefined) this.speed = speed;
-    if (labels !== undefined && labels !== this.labels) { this.labels = labels; for (const p of this.all) this.addLabel(p); }
+    if (labels !== undefined && labels !== this.labels) { this.labels = labels; for (const p of this.all) this.addLabel(p); this.updateLegend(); }
     if (cinema !== undefined) this.cine = cinema;
     if (quality && quality !== this.quality) this.applyQuality(quality);
     let rebuildPieces = false;
     if (board && board !== this.boardKey) { this.boardKey = board; this.buildBoard(); }
     if ((pcolor && pcolor !== this.scheme) || (set && set !== this.set)) { if (pcolor) this.scheme = pcolor; if (set) this.set = set; this.buildMaterials(); rebuildPieces = true; }
-    if (rebuildPieces) { this.labelCache = {}; const lay = [...this.pieces.values()].map(p => ({ type: p.type, color: p.color, sq: p.sq })); this.clearPieces(); for (const l of lay) this.spawn(l.type, l.color, l.sq); }
+    if (rebuildPieces) { this.labelCache = {}; this.updateLegend(); const lay = [...this.pieces.values()].map(p => ({ type: p.type, color: p.color, sq: p.sq })); this.clearPieces(); for (const l of lay) this.spawn(l.type, l.color, l.sq); }
   }
 
   /* ---------- backgrounds (sky, floor, lighting, ambient effects) ---------- */
@@ -126,9 +128,9 @@ export class ChessScene {
     const L = BG_LOOK[key] || BG_LOOK.wood; this.bgKey = key; const sc = this.scene;
     if (sc.background && sc.background.isTexture) sc.background.dispose(); sc.background = skyTexture([L.sky[0], L.sky[1], L.sky[1]]);
     sc.fog.color.setHex(L.fog); sc.fog.near = L.near; sc.fog.far = L.far;
-    if (this.tableMesh) { this.boardGroup.remove(this.tableMesh); this.tableMesh.material.map.dispose(); this.tableMesh.material.dispose(); this.tableMesh.geometry.dispose(); }
+    if (this.tableMesh) { this.scene.remove(this.tableMesh); this.tableMesh.material.map.dispose(); this.tableMesh.material.dispose(); this.tableMesh.geometry.dispose(); }
     const m = new THREE.MeshStandardMaterial({ map: makeTableTexture(L.table, this.renderer), roughness: L.tRough, metalness: L.tMetal, envMapIntensity: L.tEnv });
-    this.tableMesh = new THREE.Mesh(new THREE.PlaneGeometry(120, 120), m); this.tableMesh.rotation.x = -Math.PI / 2; this.tableMesh.position.y = -0.56; this.tableMesh.receiveShadow = true; this.boardGroup.add(this.tableMesh);
+    this.tableMesh = new THREE.Mesh(new THREE.PlaneGeometry(120, 120), m); this.tableMesh.rotation.x = -Math.PI / 2; this.tableMesh.position.y = -0.56; this.tableMesh.receiveShadow = true; this.scene.add(this.tableMesh);
     this.sun.color.setHex(L.sun); this.sun.intensity = L.sunI; this.warm.color.setHex(L.warm); this.warm.intensity = L.warmI; this.fill.color.setHex(L.fillC); this.fill.intensity = L.fillI;
     this.hemi.color.setHex(L.hemiS); this.hemi.groundColor.setHex(L.hemiG); this.hemi.intensity = L.hemiI; sc.environmentIntensity = L.env; this.renderer.toneMappingExposure = L.exp;
     this.buildBgFx(L);
@@ -182,6 +184,16 @@ export class ChessScene {
     const [x, z] = sqPos(sq); root.position.set(x, 0.002, z); root.rotation.y = p.restYaw; root.scale.setScalar(scale);
     this.pieceRoot.add(root); this.pieces.set(sq, p); if (p.base) p.base.position.set(x, 0.002, z); return p;
   }
+  updateLegend() {
+    if (!this.legendMesh) return; const on = this.labels === 'border'; this.legendMesh.visible = on;
+    if (on && this.legendSet !== this.set) { if (this.legendMesh.material.map) this.legendMesh.material.map.dispose(); this.legendMesh.material.map = makeLegendTexture(this.set); this.legendMesh.material.needsUpdate = true; this.legendSet = this.set; }
+  }
+  /** glow on the border icon of the piece type you just selected */
+  legendFocus(type, color) {
+    if (!this.legendGlow) { this.legendGlow = this.quad(0xffffff, 0.9, 1.25, this.glowGold); this.legendGlow.renderOrder = 3; }
+    if (!type || this.labels !== 'border') { this.legendGlow.visible = false; return; }
+    const i = ['k', 'q', 'r', 'b', 'n', 'p'].indexOf(type); this.legendGlow.position.set((i - 2.5) * 1.3, 0.008, color === 0 ? 5.05 : -5.05); this.legendGlow.visible = true;
+  }
   /* floating badge above each piece: what it is + which team (ivory = White, dark = Black, gold/red border) */
   labelTexture(type, color) {
     const key = `${this.labels}|${this.set}|${type}|${color}`; if (this.labelCache[key]) return this.labelCache[key];
@@ -198,7 +210,7 @@ export class ChessScene {
   }
   addLabel(p) {
     if (p.label) { p.root.remove(p.label); p.label.material.dispose(); p.label = null; }
-    if (this.labels === 'off') return;
+    if (this.labels !== 'above') return;
     const m = new THREE.SpriteMaterial({ map: this.labelTexture(p.type, p.color), transparent: true, depthTest: false, depthWrite: false, toneMapped: false });
     const sp = new THREE.Sprite(m); sp.scale.setScalar(0.62); sp.position.set(0, p.height + 0.42, 0); sp.renderOrder = 6; sp.userData.piece = p; p.label = sp; p.root.add(sp);
   }
@@ -237,7 +249,7 @@ export class ChessScene {
   place(m, sq, y = 0.012) { const [x, z] = sqPos(sq); m.position.set(x, y, z); m.visible = true; }
   select(sq, targets) {
     this.ensureHl(); this.deselect(false);
-    this.sel = sq; this.place(this.hl.sel, sq, 0.011);
+    this.sel = sq; this.place(this.hl.sel, sq, 0.011); { const pc = this.at(sq); if (pc) this.legendFocus(pc.type, pc.color); }
     const p = this.at(sq); if (p) this.tween(0.14, e => { p.root.position.y = 0.002 + 0.16 * e; }, E.out);
     for (const t of targets) {
       const m = new THREE.Mesh(t.capture ? this.hl.ringGeo : this.hl.dotGeo, new THREE.MeshBasicMaterial({ color: t.capture ? 0xff4d4d : 0x39e07a, transparent: true, opacity: 0.85, depthWrite: false, toneMapped: false }));
@@ -246,7 +258,7 @@ export class ChessScene {
   }
   deselect(animate = true) {
     if (this.sel !== undefined && this.sel !== null) { const p = this.at(this.sel); if (p) { if (animate) { const y0 = p.root.position.y; this.tween(0.12, e => { p.root.position.y = y0 + (0.002 - y0) * e; }, E.out); } else p.root.position.y = 0.002; } }
-    this.sel = null; if (this.hl.sel) this.hl.sel.visible = false;
+    this.sel = null; if (this.hl.sel) this.hl.sel.visible = false; this.legendFocus(null);
     for (const m of this.targets) { this.hlGroup.remove(m); m.material.dispose(); } this.targets = [];
   }
   markLast(from, to) { this.ensureHl(); if (from < 0) { this.hl.from.visible = this.hl.to.visible = false; return; } this.place(this.hl.from, from, 0.008); this.place(this.hl.to, to, 0.009); }
@@ -317,6 +329,7 @@ export class ChessScene {
     for (const m of this.targets) m.scale.setScalar(m.userData.cap ? 1 + 0.06 * Math.sin(this.t * 6) : pulse);
     if (this.hl.check && this.hl.check.visible) this.hl.check.material.opacity = 0.7 + 0.3 * Math.sin(this.t * 7);
     if (this.hl.hintB && this.hl.hintB.visible) { const o = 0.5 + 0.3 * Math.sin(this.t * 6); this.hl.hintA.material.opacity = o * 0.7; this.hl.hintB.material.opacity = o; }
+    if (this.legendGlow && this.legendGlow.visible) { const k = 1.1 + 0.15 * Math.sin(this.t * 6); this.legendGlow.scale.set(k, k, 1); }
     if (this.hl.sel && this.hl.sel.visible) this.hl.sel.material.opacity = 0.4 + 0.15 * Math.sin(this.t * 5);
     if (this.bgFx) this.bgFx.update(dt, this.t);
     for (const p of this.all) if (p.base) { p.base.position.set(p.root.position.x, 0.002, p.root.position.z); p.base.scale.setScalar(p.root.scale.x); }
