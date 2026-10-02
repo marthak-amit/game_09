@@ -5,7 +5,7 @@
   "description": "Royal Chess 3D – realistic 3D chess with a horse, elephant and camel that move like the real animals (HTML5 + Three.js + Capacitor)",
   "scripts": {
     "serve": "npx http-server www -p 8080 -c-1",
-    "test": "node scripts/test-engine.js",
+    "test": "node scripts/test-engine.js && node scripts/test-puzzles.js",
     "test:engine": "node scripts/test-engine.js",
     "android:add": "npx cap add android && npx capacitor-assets generate --android && node scripts/patch-android.js",
     "android:sync": "npx cap sync android",

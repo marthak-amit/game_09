@@ -1,63 +1,66 @@
-# 💥 Blast Bloom
+# ♞ Royal Chess 3D
 
-A chain-reaction puzzle game for mobile. **Tap to set off a blast → every orb it touches pops and blasts too.**
-Clear each board in as few taps as possible. Cute orbs with faces, juicy pops, pentatonic sound that climbs with your chain.
+A realistic **3D chess game** for Android (HTML5 + Three.js, packaged with Capacitor).
+Every piece looks like what it is — and **moves like it**:
 
-## Why it should retain & earn
-| Hook | What it does |
-|---|---|
-| Infinite levels | Seeded + solver-verified procedural levels (same level on every phone). Par is computed, so 3★ is always achievable. |
-| "Just one more tap" | Short sessions (30–60 s), near-misses ("2 orbs left!") → rewarded-ad **Continue** |
-| New mechanics over time | Big, Bomb, Armor, Anchor, Gold orbs, Pillars (Lv 3 → 12+) |
-| Daily loop | 7-day login reward, 3 daily quests, **Daily Challenge** (same puzzle for everyone) |
-| Collection | 6 orb skins, 7 worlds, level select to replay for 3★ |
-| Daily reasons to open | 🎡 Lucky Spin (1 free + 3 via rewarded ad), 7-day login reward, 3 quests, Daily Challenge, 🎁 chest every 10 levels |
-| Feel | Hold-and-drag aiming with preview ring, face-animated orbs, ambient music, haptics, slow-mo on big chains |
-| Power-ups | 💥 Mega, ❄️ Freeze, ➕ Tap – earned, bought with coins, or via rewarded ad |
+| Piece | Royal Animals set | How it moves |
+|---|---|---|
+| ♞ Knight | **Horse** (mane, tail, four legs) | rears up, gallops through the air in an arc, lands with hoof-clops |
+| ♜ Rook | **Elephant** (trunk, tusks, ears, howdah tower) | heavy stomping walk, camera shakes on every footstep, trumpets when it captures |
+| ♝ Bishop | **Camel** (hump, saddle blanket) | swaying, rhythmic stride |
+| ♛ Queen / ♚ King / ♟ Pawn | crowned Queen & King, soldier pawn | queen glides with a lean, king steps with dignity, pawns hop |
 
-### Monetisation (all hooks already in code – `www/js/ads.js`, `config.js`)
-* **Rewarded video** – continue (+2 taps), double level coins, free power-ups, free coins (5/day), double daily reward
-* **Interstitial** – every 3rd finished level, ≥90 s apart, never in the first 4 levels, never for ad-free buyers
-* **IAP** – Remove Ads ₹149, Starter Pack ₹99, coin packs ₹49 / ₹129 / ₹299, skins & power-ups via coins
+Prefer tournament pieces? Settings → *Piece style* → **Classic Staunton** (carved horse-head knight, crenellated rook, mitre bishop).
 
-> ⚠️ **Honest note on the ₹10 lakh/month goal:** the game is built to maximise retention and ad/IAP hooks, but revenue is
-> `DAU × ARPDAU`. Hyper-casual puzzle ARPDAU in India is typically ₹1–4, so ₹10L/month needs roughly **10k–30k+ daily
-> active users**, which in practice means marketing / UA spend, store-listing optimisation and live-ops (new skins, events).
-> No game can guarantee that figure – this gives you a strong product to start from.
+## Features
+- **True 3D** – drag to rotate the board, pinch to zoom, procedural wood / black marble / emerald felt / sapphire boards, real shadows & reflections
+- **Complete chess rules** – castling, en passant, promotion, check / checkmate / stalemate, 50-move, threefold repetition, insufficient material. The move generator is verified with **perft** against the published reference counts
+- **Computer opponent**, 6 levels (Beginner → Master) running in a Web Worker (no stutter)
+- **Pass & Play** with an auto-turning board, optional clocks (5 / 10 / 15+10)
+- **Mate-in-1/2/3 puzzles** (105 engine-verified, unique solutions) + a **daily puzzle**
+- Undo, hints, move list, captured pieces, last-move & check highlights, legal-move dots, save & resume
+- Rating that changes with every game, coins, daily rewards, shop (boards, piece colours)
+- Procedural sound: wooden clacks, hoof-clops, elephant footsteps & trumpet, camel pads, ambient music, haptics
 
-## Play on your phone right now (no APK)
-Serve `www/` over HTTPS (e.g. GitHub Pages: Settings → Pages → deploy from branch, folder `/www` via a workflow, or Netlify drag-and-drop of the `www` folder). It installs as an offline PWA ("Add to Home screen").
+## Monetisation (hooks in `www/js/ads.js`, `config.js`)
+- **Rewarded video** – extra hints/undos, double coins, free coins (5/day), double daily reward
+- **Interstitial** – only after a finished game, ≥2 min apart, never in the first 2 games, never for ad-free buyers
+- **IAP** – Remove Ads ₹149, coin packs ₹49 / ₹129 / ₹299; boards & piece colours unlocked with coins
 
-## Run in a browser
+> ⚠️ The ₹10 lakh/month goal depends on daily players × revenue per player (hyper-casual/board games in India are
+> roughly ₹1–4 per daily user), i.e. ~10k–30k+ daily users. That needs marketing and live-ops on top of the game.
+
+## Run / test
 ```bash
-npm run serve        # http://localhost:8080  (ads/IAP are fake "TEST" overlays in the browser)
-npm run test:levels  # verifies 150 levels generate & are solvable
+npm run serve   # http://localhost:8080 (ads & purchases are fake "TEST" overlays in a browser)
+npm test        # perft (6 reference positions) + hashing + SAN + mate-finding + all AI levels
+node scripts/gen-puzzles.js 30 50 25 > www/js/puzzles.json   # regenerate puzzles
 ```
 
-## Build the Android app (free)
-Option A – **GitHub Actions** (no local setup): Actions → *Build Android APK* → Run workflow → download the `blast-bloom-debug-apk` artifact.
+## Build the Android APK (free)
+**GitHub Actions** (no local setup): push → the *Build Android APK* workflow builds a debug APK, uploads it as an
+artifact **and** publishes it to the `apk` branch (`RoyalChess3D-debug.apk`).
 
-Option B – local (needs Node 20, JDK 21, Android SDK):
+Local build (Node 20, JDK 21, Android SDK):
 ```bash
-npm install
-npm run android:add      # generates android/ and patches AdMob app id
-npm run android:apk      # android/app/build/outputs/apk/debug/app-debug.apk
+npm ci && npm run android:add && npm run android:apk
 ```
 
-## Before release (things you said you'd provide later)
-1. **AdMob**: create app + ad units → put IDs in `www/js/config.js` (`ads.*`), set `ads.testing=false`, and pass `ADMOB_APP_ID` to `scripts/patch-android.js`.
-2. **IAP**: create the 5 products in Play Console (IDs in `config.js → iap`) and implement the purchase call in `IAP.buy()` (`ads.js`, marked `TODO`; e.g. `cordova-plugin-purchase`). Until then, purchases in the native app show "Store not configured yet"; in the browser they are simulated.
-3. Icon + splash are already generated (`assets/`, applied by `capacitor-assets` in `android:add`). Still needed: signing key, privacy policy URL (required by Play + AdMob), Data-safety form, and configuring the UMP consent message in the AdMob console (the code already requests it).
-
-Currently everything uses **Google's official TEST ad units** (safe to click). Never click your own live ads.
+## Before release
+1. **AdMob** – put your app/ad-unit IDs in `www/js/config.js` (`ads.*`), set `ads.testing=false`, pass `ADMOB_APP_ID` to `scripts/patch-android.js`. Everything uses Google's **test ads** right now.
+2. **IAP** – create the products in Play Console (IDs in `config.js → iap`) and implement `IAP.buy()` in `ads.js` (marked `TODO`, e.g. `cordova-plugin-purchase`).
+3. Signing key, privacy-policy URL, Play data-safety form, UMP consent message in the AdMob console.
 
 ## Structure
 ```
 www/index.html, css/style.css
-www/js/sim.js      deterministic simulation (also used by the level solver)
-www/js/levels.js   seeded generator + Monte-Carlo solver → par/taps
-www/js/render.js   canvas renderer (faces, particles, shake)
-www/js/audio.js    procedural WebAudio (no asset files)
-www/js/ads.js      AdMob + IAP adapter (fake in browser)
-www/js/app.js      game flow, menus, daily/quests/shop
+www/js/chess-engine.js   rules + AI (UMD, used by the page, the worker and Node tests)
+www/js/ai-worker.js      AI in a Web Worker
+www/js/pieces.js         procedural 3D pieces (horse, elephant, camel, Staunton set)
+www/js/scene.js          3D board, camera, picking, move animations
+www/js/textures.js       procedural wood / marble / felt textures
+www/js/audio.js          procedural sound + music
+www/js/app.js            game flow, menus, puzzles, shop, settings
+www/js/puzzles.json      generated puzzles
+scripts/                 engine tests, puzzle generator, icon generator
 ```

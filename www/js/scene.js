@@ -27,7 +27,7 @@ export class ChessScene {
   constructor(canvas) {
     this.canvas = canvas; this.pieces = new Map(); this.tweens = []; this.speed = 1; this.t = 0; this.onPick = null;
     this.all = new Set(); this.set = 'royal'; this.scheme = 'ivory'; this.boardKey = 'wood'; this.quality = 'high'; this.tpl = {}; this.mats = null;
-    this.targets = []; this.hl = {}; this.shake = 0; this.maxDt = new URLSearchParams(location.search).has('fast') ? 0.4 : 0.05; this.running = true; this.menuSpin = false; this.camTween = null;
+    this.targets = []; this.hl = {}; this.cine = true; this.frames = 0; this.acc = 0; this.noAdapt = new URLSearchParams(location.search).has('fast'); this.shake = 0; this.maxDt = new URLSearchParams(location.search).has('fast') ? 0.4 : 0.05; this.running = true; this.menuSpin = false; this.camTween = null;
     const r = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     r.shadowMap.enabled = true; r.shadowMap.type = THREE.PCFSoftShadowMap; r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.0;
     const sc = this.scene = new THREE.Scene(); sc.background = new THREE.Color(0x120c08); sc.fog = new THREE.Fog(0x120c08, 26, 62);
@@ -58,6 +58,7 @@ export class ChessScene {
 
   /* ---------- setup ---------- */
   applyQuality(q) {
+    this.autoQ = q === 'auto';
     if (q === 'auto') q = (Math.min(screen.width, screen.height) * (window.devicePixelRatio || 1) > 1000 && (navigator.hardwareConcurrency || 4) >= 6) ? 'high' : 'medium';
     this.quality = q; const Q = QUALITY[q];
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, Q.dpr)); this.renderer.shadowMap.enabled = Q.shadows; this.sun.castShadow = Q.shadows;
@@ -72,7 +73,7 @@ export class ChessScene {
   /** keep the whole board in view for the current aspect ratio */
   fit() {
     const vf = this.camera.fov * Math.PI / 180, hf = 2 * Math.atan(Math.tan(vf / 2) * this.camera.aspect);
-    const need = 4.85 / Math.tan(Math.min(hf, vf * 1.4) / 2);
+    const need = 4.55 / Math.tan(Math.min(hf, vf * 1.4) / 2);
     this.fitDist = Math.max(13, need);
     this.controls.minDistance = this.fitDist * 0.5; this.controls.maxDistance = this.fitDist * 1.35;
     if (!this._fitted) { this._fitted = true; this.setRadius(this.fitDist); }
@@ -99,8 +100,9 @@ export class ChessScene {
     const table = new THREE.Mesh(new THREE.PlaneGeometry(90, 90), new THREE.MeshStandardMaterial({ map: T.table, roughness: 0.55, metalness: 0, envMapIntensity: 0.4 }));
     table.rotation.x = -Math.PI / 2; table.position.y = -0.56; table.receiveShadow = true; g.add(table);
   }
-  setStyle({ board, pcolor, set, quality, speed }) {
+  setStyle({ board, pcolor, set, quality, speed, cinema }) {
     if (speed !== undefined) this.speed = speed;
+    if (cinema !== undefined) this.cine = cinema;
     if (quality && quality !== this.quality) this.applyQuality(quality);
     let rebuildPieces = false;
     if (board && board !== this.boardKey) { this.boardKey = board; this.buildBoard(); }
@@ -181,7 +183,7 @@ export class ChessScene {
 
   /* ---------- camera ---------- */
   resetCamera(view, instant) {
-    const target = { white: [0, 0.82], black: [Math.PI, 0.82], top: [this.controls.getAzimuthalAngle(), 0.14], side: [Math.PI / 2, 1.1] }[view] || [0, 0.82];
+    const target = { white: [0, 0.88], black: [Math.PI, 0.88], top: [this.controls.getAzimuthalAngle(), 0.14], side: [Math.PI / 2, 1.1] }[view] || [0, 0.88];
     const r = this.fitDist || 22;
     if (instant) { this.setSph(target[0], target[1], r); return; }
     const th0 = this.controls.getAzimuthalAngle(), ph0 = this.controls.getPolarAngle(), r0 = this.camera.position.distanceTo(this.controls.target);
@@ -192,6 +194,18 @@ export class ChessScene {
     const t = this.controls.target; this.camera.position.set(t.x + r * Math.sin(phi) * Math.sin(theta), t.y + r * Math.cos(phi), t.z + r * Math.sin(phi) * Math.cos(theta)); this.controls.update();
   }
   setMenuSpin(on) { this.menuSpin = on; this.controls.autoRotate = on; }
+
+  /** cinematic move camera: ease toward the action, then back */
+  cinemaIn(mx, mz, factor) {
+    const c = this.controls, t0 = c.target.clone(), off = this.camera.position.clone().sub(t0), r0 = off.length();
+    const t1 = new THREE.Vector3(mx * 0.6, 0.3, mz * 0.6 + 0.5 * 0.4), r1 = Math.max(c.minDistance + 0.5, r0 * factor);
+    const saved = { t0, r0 }; this.cinemaOn = true;
+    return this.tween(0.5, e => { const dir = this.camera.position.clone().sub(c.target).normalize(); c.target.lerpVectors(t0, t1, e); this.camera.position.copy(c.target).addScaledVector(dir, r0 + (r1 - r0) * e); c.update(); }, E.io).then(() => saved);
+  }
+  cinemaOut(saved) {
+    const c = this.controls, t1 = c.target.clone(), r1 = this.camera.position.distanceTo(c.target);
+    return this.tween(0.6, e => { const dir = this.camera.position.clone().sub(c.target).normalize(); c.target.lerpVectors(t1, saved.t0, e); this.camera.position.copy(c.target).addScaledVector(dir, r1 + (saved.r0 - r1) * e); c.update(); }, E.io).then(() => { this.cinemaOn = false; });
+  }
 
   /* ---------- effects ---------- */
   puff(x, y, z, n, color = 0xd8c8a8, speed = 1.2, up = 0.8, size = 0.5) {
@@ -209,8 +223,17 @@ export class ChessScene {
   /* ---------- tween engine ---------- */
   tween(dur, fn, ease = E.io) { return new Promise(res => { this.tweens.push({ t: 0, dur: Math.max(0.001, dur), fn, ease, res }); }); }
   wait(sec) { return this.tween(sec, () => {}, E.lin); }
+  /** adaptive graphics: if the device can't keep ~30fps, step quality down automatically (only when quality = Auto) */
+  govern(dt) {
+    if (!this.autoQ || this.noAdapt || document.hidden || this.menuSpin) return;
+    this.acc += dt; this.frames++;
+    if (this.frames >= 150) {
+      const avg = this.acc / this.frames; this.acc = 0; this.frames = 0;
+      if (avg > 0.036 && this.quality !== 'low') { const next = this.quality === 'high' ? 'medium' : 'low'; const keep = this.autoQ; this.applyQuality(next); this.autoQ = keep; if (this.onQuality) this.onQuality(next); }
+    }
+  }
   update(dt) {
-    this.t += dt;
+    this.t += dt; this.govern(dt);
     const sdt = dt * this.speed;
     for (let i = this.tweens.length - 1; i >= 0; i--) {
       const tw = this.tweens[i]; tw.t += sdt; const u = Math.min(1, tw.t / tw.dur); tw.fn(tw.ease(u), u);
@@ -235,6 +258,8 @@ export class ChessScene {
     const victim = info.capture ? this.at(info.capture.sq) : null;
     this.pieces.delete(info.from); if (victim) this.pieces.delete(info.capture.sq);
     const [x0, z0] = sqPos(info.from), [x1, z1] = sqPos(info.to);
+    const animal = this.set === 'royal' && (mover.type === 'n' || mover.type === 'r' || mover.type === 'b');
+    const cin = this.cine && !this.cinemaOn && (animal || victim) ? this.cinemaIn((x0 + x1) / 2, (z0 + z1) / 2, animal ? 0.68 : 0.8) : null;
     const jobs = [this.moveOne(mover, x0, z0, x1, z1, victim, info)];
     if (info.castle) {
       const rook = this.at(info.castle.from); this.pieces.delete(info.castle.from);
@@ -242,6 +267,7 @@ export class ChessScene {
       jobs.push(this.moveOne(rook, rx0, rz0, rx1, rz1, null, {})); rook.sq = info.castle.to; this.pieces.set(info.castle.to, rook);
     }
     await Promise.all(jobs);
+    if (cin) { const saved = await cin; await this.wait(0.15); await this.cinemaOut(saved); }
     mover.sq = info.to; this.pieces.set(info.to, mover);
     if (info.promo) await this.promote(mover, info.promo);
   }

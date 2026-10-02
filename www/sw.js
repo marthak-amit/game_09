@@ -1,5 +1,5 @@
 // Offline cache for the web/PWA build (not used inside the native app). Network-first so updates always win.
-const V = 'rc3d-v1', FILES = ['./', 'index.html', 'css/style.css', 'manifest.json', 'icon-192.png', 'icon-512.png', 'vendor/three/three.module.min.js',
+const V = 'rc3d-v1', FILES = ['./', 'index.html', 'css/style.css', 'manifest.json', 'js/puzzles.json', 'icon-192.png', 'icon-512.png', 'vendor/three/three.module.min.js',
   'vendor/three/addons/controls/OrbitControls.js', 'vendor/three/addons/environments/RoomEnvironment.js', 'vendor/three/addons/geometries/RoundedBoxGeometry.js', 'vendor/three/addons/utils/BufferGeometryUtils.js',
   ...['chess-engine', 'ai-worker', 'config', 'storage', 'audio', 'ads', 'textures', 'pieces', 'scene', 'app'].map(f => 'js/' + f + '.js')];
 self.addEventListener('install', e => { e.waitUntil(caches.open(V).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });

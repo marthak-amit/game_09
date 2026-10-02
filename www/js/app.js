@@ -22,8 +22,9 @@ bus.toast = toast;
 const scene = new ChessScene($('#c'));
 const G = { mode: null, human: 0, level: 2, board: null, moves: [], sans: [], legal: [], over: false, busy: false, thinking: false, sel: -1, targets: [], clocks: [0, 0], tc: TIMES[0], hints: 0, undos: 0, paused: false, startFen: E.START_FEN, id: 0, tick: null, captured: [[], []], lastMove: null };
 
-function applyStyle() { scene.setStyle({ board: Save.d.board, pcolor: Save.d.pcolor, set: Save.d.set, quality: Save.d.quality, speed: Save.d.speed }); }
+function applyStyle() { scene.setStyle({ board: Save.d.board, pcolor: Save.d.pcolor, set: Save.d.set, quality: Save.d.quality, speed: Save.d.speed, cinema: Save.d.cinema }); }
 applyStyle();
+scene.onQuality = q => toast('Graphics set to ' + q + ' for smooth play', 2600);
 
 let toastT;
 function toast(msg, ms = 1900) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), ms); }
@@ -35,6 +36,20 @@ $('#card').addEventListener('click', e => {
   const fn = ACT[b.dataset.act]; if (fn) fn(b.dataset.a, b);
 });
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal' && !G.over && ($('#card').dataset.dismiss === '1')) closeModal(); });
+
+/* ---------- puzzles (mate in N, unique solution; generated + verified by the engine) ---------- */
+let PUZ = null;
+async function loadPuzzles() { if (PUZ) return PUZ; try { PUZ = await (await fetch('js/puzzles.json')).json(); } catch (e) { PUZ = []; } return PUZ; }
+function forcedMates(b, n) {
+  const res = [];
+  for (const m of b.legal()) {
+    b.make(m); let ok = b.inCheck() && b.legal().length === 0;
+    if (!ok && n > 1 && !b.insufficient()) { const rep = b.legal(); ok = rep.length > 0 && rep.every(r => { b.make(r); const good = forcedMates(b, n - 1).length > 0; b.unmake(); return good; }); }
+    b.unmake(); if (ok) res.push(m);
+  }
+  return res;
+}
+const dayHash = () => { let h = 0; for (const c of todayStr()) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h; };
 
 /* ---------- AI worker ---------- */
 let worker = null, reqId = 0; const pending = new Map();
@@ -64,6 +79,7 @@ function showHome() {
   const d = Save.d; $('#homeCoins b').textContent = d.coins; $('#homeRating b').textContent = d.rating;
   $('#btnContinue').classList.toggle('hidden', !d.game);
   $('#dotGift').classList.toggle('hidden', dailyState().claimed);
+  $('#dotPuz').classList.toggle('hidden', d.puzzle.daily === todayStr());
   scene.loadPosition(new E.Board().b); scene.setMenuSpin(true); scene.resetCamera('white', true); scene.setSph(0.6, 0.9, scene.fitDist * 0.82);
   scene.running = true;
 }
@@ -101,6 +117,13 @@ function trackCapture(b, m) {
   if (flag & E.F_CAP) { const v = (flag & E.F_EP) ? E.P : (b.b[to] & 7); G.captured[us].push(TCH[v]); }
 }
 function setupBars() {
+  if (G.mode === 'puzzle') {
+    const pz = PUZ[G.puz.i]; G.bottomColor = G.human;
+    $('#nameTop').textContent = `🧩 Puzzle ${pz.id}${G.puz.daily ? ' · Daily' : ''}`; $('#avTop').textContent = '🧩';
+    $('#nameBot').textContent = `${G.human ? 'Black' : 'White'} to play · Mate in ${pz.n}`; $('#avBot').textContent = G.human ? '♚\uFE0E' : '♔\uFE0E';
+    $('#btnHint').classList.remove('hidden'); $('#btnUndo').classList.add('hidden'); return;
+  }
+  $('#btnUndo').classList.remove('hidden');
   const ai = G.mode === 'ai', L = E.LEVELS[G.level];
   const bottomColor = ai ? G.human : 0, topColor = bottomColor ^ 1;
   G.bottomColor = bottomColor;
@@ -136,6 +159,7 @@ function startClock() {
 }
 function updateClocksOnly() { const bot = G.bottomColor, top = bot ^ 1; $('#clockBot').textContent = fmt(G.clocks[bot]); $('#clockTop').textContent = fmt(G.clocks[top]); $('#clockBot').classList.toggle('low', G.clocks[bot] < 20); $('#clockTop').classList.toggle('low', G.clocks[top] < 20); }
 function saveGame() {
+  if (G.mode === 'puzzle') return;
   if (G.over || !G.mode) { Save.d.game = null; } else Save.d.game = { mode: G.mode, level: G.level, human: G.human, time: G.tc.id, moves: G.moves.slice(), clocks: G.clocks.slice(), hints: G.hints, undos: G.undos };
   Save.save();
 }
@@ -160,6 +184,7 @@ function selectSq(sq) {
 function tryMove(from, to) {
   const mv = G.legal.filter(m => (m & 63) === from && ((m >> 6) & 63) === to);
   if (!mv.length) return;
+  if (G.mode === 'puzzle' && mv.length === 1 && !puzzleAccept(mv[0])) return puzzleWrong();
   if (mv.length > 1) { // promotion
     const color = G.board.turn;
     modal(`<h2>Promote</h2><p>Choose your new piece</p><div class="promo">${['q', 'r', 'b', 'n'].map(t => `<button data-act="promo" data-a="${t}">${glyph(t)}<small>${NAMES[Save.d.set][t]}</small></button>`).join('')}</div>`);
@@ -168,7 +193,7 @@ function tryMove(from, to) {
   commit(mv[0]);
 }
 const ACT = {};
-ACT.promo = t => { const code = 'pnbrqk'.indexOf(t) + 1; const m = G._promo.find(x => ((x >> 12) & 7) === code); closeModal(); G._promo = null; if (m) commit(m); };
+ACT.promo = t => { const code = 'pnbrqk'.indexOf(t) + 1; const m = G._promo.find(x => ((x >> 12) & 7) === code); closeModal(); G._promo = null; if (m) { if (G.mode === 'puzzle' && !puzzleAccept(m)) return puzzleWrong(); commit(m); } };
 
 /* ---------- making moves ---------- */
 async function commit(m) {
@@ -185,6 +210,7 @@ async function commit(m) {
   scene.markLast(from, to);
   const st = b.status(); G.legal = b.legal(); G.busy = false;
   if (st.check) scene.markCheck(b.kingSq[b.turn]);
+  if (G.mode === 'puzzle') { await puzzleAfter(st, us, gid); return; }
   if (st.over) { await endGame(st); return; }
   if (st.check) { Sfx.check(); Sfx.buzz(40); toast('Check!', 1300); }
   saveGame(); updateHud();
@@ -217,6 +243,11 @@ async function doUndo() {
 }
 async function doHint() {
   if (G.busy || G.thinking || G.over) return;
+  if (G.mode === 'puzzle') {
+    const p = G.puz, rem = p.n - p.step; if (p.hints >= 1 && !(await Ads.rewarded())) return; p.hints++;
+    const m = p.step === 0 ? G.board.parseUci(PUZ[p.i].m1, G.legal) : forcedMates(G.board, rem)[0];
+    if (m) { scene.showHint(m & 63, (m >> 6) & 63); toast('Move the highlighted piece', 2400); Sfx.select(); } return;
+  }
   if (G.hints <= 0) { offer('hint'); return; }
   G.hints--; updateHud(); G.thinking = true; $('#think').classList.remove('hidden'); const gid = G.id;
   const res = await askAI({ hint: true }); if (gid !== G.id) return; G.thinking = false; updateHud();
@@ -238,7 +269,7 @@ $('#btnMenu').onclick = () => { Sfx.click(); showPause(); };
 function showPause() {
   if (!G.mode) return;
   modal(`<h2>Paused</h2><div class="col"><button class="btn gold" data-act="close">Resume</button><button class="btn dark" data-act="moveList">Move list</button><button class="btn dark" data-act="settings">Settings</button>
-    ${G.over ? '' : '<button class="btn dark" data-act="resign">Resign</button>'}<button class="btn ghost" data-act="home">Save &amp; exit to menu</button></div>`);
+    ${G.mode === 'puzzle' ? '<button class="btn dark" data-act="restartPuzzle">Restart puzzle</button>' : G.over ? '' : '<button class="btn dark" data-act="resign">Resign</button>'}<button class="btn ghost" data-act="home">${G.mode === 'puzzle' ? 'Exit to menu' : 'Save &amp; exit to menu'}</button></div>`);
   $('#card').dataset.dismiss = '1';
 }
 ACT.moveList = () => {
@@ -345,7 +376,7 @@ $('#homeCoins').onclick = () => { showShop(); };
 function showSettings() {
   const d = Save.d, sw = (k, label) => `<div class="switch"><div class="grow">${label}</div><button class="btn ${d[k] ? 'gold' : 'ghost'}" data-act="tog" data-a="${k}">${d[k] ? 'ON' : 'OFF'}</button></div>`;
   const opts = (k, vals) => vals.map(([v, l]) => `<button class="opt ${d[k] === v ? 'on' : ''}" data-act="pick" data-a="${k}:${v}">${l}</button>`).join('');
-  modal(`<h2>Settings</h2><div class="list">${sw('sound', 'Sound effects')}${sw('music', 'Music')}${sw('vib', 'Vibration')}${sw('legal', 'Show legal moves')}${sw('autoRotate', 'Auto-turn board (Pass &amp; Play)')}</div>
+  modal(`<h2>Settings</h2><div class="list">${sw('sound', 'Sound effects')}${sw('music', 'Music')}${sw('vib', 'Vibration')}${sw('legal', 'Show legal moves')}${sw('cinema', 'Cinematic move camera')}${sw('autoRotate', 'Auto-turn board (Pass &amp; Play)')}</div>
    <h3>Piece style</h3><div class="chips">${opts('set', [['royal', '🐴 Royal Animals'], ['staunton', '♞ Classic']])}</div>
    <h3>Graphics</h3><div class="chips">${opts('quality', [['auto', 'Auto'], ['high', 'High'], ['medium', 'Medium'], ['low', 'Low']])}</div>
    <h3>Animation speed</h3><div class="chips">${opts('speed', [[0.7, 'Slow'], [1, 'Normal'], [1.6, 'Fast']])}</div>
@@ -353,7 +384,7 @@ function showSettings() {
   $('#card').dataset.dismiss = '1';
 }
 ACT.settings = () => showSettings();
-ACT.tog = k => { Save.d[k] = !Save.d[k]; Save.save(); if (k === 'music') Sfx.music(Save.d.music); if (k === 'sound' && !Save.d.sound) Sfx.music(false); showSettings(); };
+ACT.tog = k => { Save.d[k] = !Save.d[k]; Save.save(); if (k === 'cinema') applyStyle(); if (k === 'music') Sfx.music(Save.d.music); if (k === 'sound' && !Save.d.sound) Sfx.music(false); showSettings(); };
 ACT.pick = a => { const [k, v] = a.split(':'); Save.d[k] = k === 'speed' ? +v : v; Save.save(); applyStyle(); if (G.board && G.mode && k === 'set') { updateHud(); } showSettings(); };
 ACT.restore = () => toast('Purchases restored (if any)');
 $('#btnSettings').onclick = () => { Sfx.init(); Sfx.click(); showSettings(); };
@@ -361,6 +392,68 @@ $('#btnStats').onclick = () => { Sfx.click(); const s = Save.d.stats;
   modal(`<h2>Your Stats</h2><div class="stat"><span>Rating</span><span>${Save.d.rating}</span></div><div class="stat"><span>Games vs computer</span><span>${s.games}</span></div><div class="stat"><span>Wins</span><span>${s.wins}</span></div><div class="stat"><span>Draws</span><span>${s.draws}</span></div><div class="stat"><span>Losses</span><span>${s.losses}</span></div><div class="stat"><span>Strongest opponent beaten</span><span>${s.best || '—'}</span></div><div class="col"><button class="btn gold" data-act="close">Close</button></div>`); $('#card').dataset.dismiss = '1'; };
 $('#btnHow').onclick = () => { Sfx.click();
   modal(`<h2>How to play</h2><p style="text-align:left">Tap a piece, then tap a highlighted square. Drag to rotate the board, pinch to zoom.<br><br>🐴 <b>Horse</b> (knight) leaps in an L.<br>🐘 <b>Elephant</b> (rook) marches in straight lines.<br>🐪 <b>Camel</b> (bishop) crosses diagonally.<br>♛ <b>Queen</b> glides anywhere · ♚ <b>King</b> steps one square · ♟ <b>Soldier</b> (pawn) marches forward, captures diagonally, promotes on the far rank.<br><br>Switch to <b>Classic</b> pieces anytime in Settings.</p><div class="col"><button class="btn gold" data-act="close">Got it</button></div>`); $('#card').dataset.dismiss = '1'; };
+
+/* ---------- puzzle flow ---------- */
+function puzzleAccept(m) {
+  const p = G.puz, b = G.board, rem = p.n - p.step;
+  if (rem === 1) { b.make(m); const mate = b.inCheck() && b.legal().length === 0; b.unmake(); return mate; }
+  if (p.step === 0) return b.uci(m) === PUZ[p.i].m1;
+  return forcedMates(b, rem).includes(m);
+}
+function puzzleWrong() {
+  const p = G.puz; p.tries++; Sfx.bad(); Sfx.buzz(60); G.sel = -1; G.targets = []; scene.deselect();
+  toast(p.tries >= 3 ? 'Stuck? Tap the 💡 hint' : 'Not the forced mate – try again!', 1800);
+}
+async function puzzleAfter(st, mover, gid) {
+  const p = G.puz; if (gid !== G.id) return;
+  if (st.over) { if (st.reason === 'checkmate') return puzzleSolved(); G.over = true; toast('Hmm, that wasn\'t it'); return; }
+  if (mover === G.human) {                      // opponent defends with the stubbornest reply
+    p.step++; G.thinking = true; updateHud(); await sleep(650); if (gid !== G.id) return; G.thinking = false;
+    const b = G.board, rem = p.n - p.step, reps = b.legal(); let best = reps[0], bestN = 1e9;
+    for (const r of reps) { b.make(r); const n = forcedMates(b, rem).length; b.unmake(); if (n >= 1 && (n < bestN || (n === bestN && Math.random() < 0.4))) { bestN = n; best = r; } }
+    commit(best);
+  } else { updateHud(); }
+}
+async function puzzleSolved() {
+  const p = G.puz, pz = PUZ[p.i], d = Save.d, pr = d.puzzle; G.over = true; updateHud();
+  const first = !pr.solved[pz.id]; pr.solved[pz.id] = 1; pr.next = Math.max(pr.next, p.i + 1);
+  let coins = first ? [0, 15, 25, 40][pz.n] : 5; if (p.daily && pr.daily !== todayStr()) { pr.daily = todayStr(); coins += 40; }
+  if (p.tries === 0 && first) coins += 10;
+  d.coins += coins; Save.save(); Sfx.win(); Sfx.buzz(50);
+  scene.kingFall(G.board.kingSq[G.board.turn]); await sleep(1400);
+  const hasNext = p.i + 1 < PUZ.length && !p.daily;
+  modal(`<h2>Puzzle solved!</h2><p>Checkmate in ${pz.n}${p.tries === 0 ? ' · first try ⭐' : ''}</p><div class="stat"><span>Coins</span><span>+${coins} 🪙</span></div>
+    <div class="col">${hasNext ? '<button class="btn gold" data-act="nextPuzzle">Next puzzle ▶</button>' : ''}<button class="btn ${hasNext ? 'dark' : 'gold'}" data-act="puzzleMenu">All puzzles</button><button class="btn ghost" data-act="homeAfterPuz">Home</button></div>`);
+  $('#card').dataset.dismiss = '0';
+}
+async function startPuzzle(idx, daily) {
+  await loadPuzzles(); const pz = PUZ[idx]; if (!pz) return toast('Puzzles not available');
+  closeModal(); Sfx.init(); Sfx.music(); G.id++; clearInterval(G.tick);
+  G.mode = 'puzzle'; G.puz = { i: idx, n: pz.n, step: 0, tries: 0, hints: 0, daily: !!daily };
+  G.board = new E.Board(pz.fen); G.startFen = pz.fen; G.human = G.board.turn; G.tc = TIMES[0]; G.moves = []; G.sans = []; G.over = false; G.busy = false; G.thinking = false; G.paused = false;
+  G.sel = -1; G.targets = []; G.captured = [[], []]; G.lastMove = null; G.hints = 1; G.undos = 0; G.legal = G.board.legal();
+  scene.setMenuSpin(false); scene.loadPosition(G.board.b); scene.clearMarks(); if (G.board.inCheck()) scene.markCheck(G.board.kingSq[G.board.turn]);
+  $('#home').classList.add('hidden'); $('#hud').classList.remove('hidden'); viewIdx = G.human ? 1 : 0; scene.resetCamera(G.human ? 'black' : 'white');
+  setupBars(); updateHud(); $('#nHint').textContent = '💡';
+  toast(`Mate in ${pz.n} · ${G.human ? 'Black' : 'White'} to move`, 2600);
+}
+async function showPuzzles() {
+  await loadPuzzles(); const pr = Save.d.puzzle, n = PUZ.length, solved = Object.keys(pr.solved).length;
+  const di = n ? dayHash() % n : 0, dDone = pr.daily === todayStr();
+  const cells = PUZ.map((pz, i) => `<button class="pg ${pr.solved[pz.id] ? 'done' : i > pr.next ? 'lock' : ''}" data-act="${i > pr.next ? 'locked' : 'playPuzzle'}" data-a="${i}">${pz.id}<small>M${pz.n}</small></button>`).join('');
+  modal(`<h2>Puzzles</h2><p>${solved} / ${n} solved · find the one forced checkmate</p>
+    <div class="col" style="margin-top:6px"><button class="btn gold" data-act="playPuzzle" data-a="${Math.min(pr.next, n - 1)}">▶ Puzzle ${Math.min(pr.next, n - 1) + 1}${pr.next >= n ? ' (replay)' : ''}</button>
+    <button class="btn ${dDone ? 'dark' : 'ad'}" data-act="dailyPuzzle">🗓 Daily puzzle ${dDone ? '✓ done' : '· +40 🪙'}</button></div>
+    <h3>All puzzles</h3><div class="pgrid">${cells}</div><div class="col"><button class="btn ghost" data-act="close">Close</button></div>`);
+  $('#card').dataset.dismiss = '1';
+}
+ACT.restartPuzzle = () => startPuzzle(G.puz.i, G.puz.daily);
+ACT.puzzleMenu = () => showPuzzles(); ACT.locked = () => toast('Solve the earlier puzzles first');
+ACT.playPuzzle = a => startPuzzle(+a, false);
+ACT.dailyPuzzle = async () => { await loadPuzzles(); startPuzzle(dayHash() % PUZ.length, true); };
+ACT.nextPuzzle = () => startPuzzle(G.puz.i + 1, false);
+ACT.homeAfterPuz = () => showHome();
+$('#btnPuz').onclick = () => { Sfx.init(); Sfx.click(); showPuzzles(); };
 
 /* ---------- lifecycle ---------- */
 function onBack(exit) {
