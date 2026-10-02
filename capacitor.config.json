@@ -1,7 +1,7 @@
 {
-  "appId": "com.marthak.blastbloom",
-  "appName": "Blast Bloom",
+  "appId": "com.marthak.royalchess3d",
+  "appName": "Royal Chess 3D",
   "webDir": "www",
-  "backgroundColor": "#10082b",
+  "backgroundColor": "#120c08",
   "android": { "allowMixedContent": false }
 }

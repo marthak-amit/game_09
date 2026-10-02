@@ -1,361 +1,383 @@
-/* Blast Bloom – game controller, UI and meta-game (daily rewards, quests, shop). */
-const cv = $('#c'), R = new Renderer(cv);
-const A = { mode: 'home', s: null, def: null, tapsLeft: 0, tapsUsed: 0, extraTaps: 0, mega: false, score: 0, coinsRun: 0, bestChain: 0,
-  outcome: null, timer: 0, slowUntil: 0, paused: false, continued: false, dailyKey: null, home: null, homeT: 0 };
+/* Royal Chess 3D – game controller, UI and meta-game. */
+import { ChessScene } from './scene.js';
+import { Sfx } from './audio.js';
+import { Save } from './storage.js';
+import { CFG, BOARDS, PIECE_COLORS, TIMES } from './config.js';
+import { Ads, IAP, Native, bus, nativeLifecycle } from './ads.js';
 
-function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 1800); }
-const skin = () => SKINS[Save.d.skin] || SKINS.candy;
-const world = () => (A.def ? A.def.world : (A.mode === 'home' ? worldFor(Save.d.level) : WORLDS[0]));
-function yesterdayStr() { const d = new Date(Date.now() - 864e5); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+const E = window.ChessEngine;
+const $ = (s, r) => (r || document).querySelector(s);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const GL = {
+  royal: { p: '♟︎', n: '🐴', b: '🐪', r: '🐘', q: '♛︎', k: '♚︎' },
+  staunton: { p: '♟︎', n: '♞︎', b: '♝︎', r: '♜︎', q: '♛︎', k: '♚︎' }
+};
+const NAMES = { royal: { p: 'Soldier', n: 'Horse', b: 'Camel', r: 'Elephant', q: 'Queen', k: 'King' }, staunton: { p: 'Pawn', n: 'Knight', b: 'Bishop', r: 'Rook', q: 'Queen', k: 'King' } };
+const TCH = ' pnbrqk';
+const glyph = t => GL[Save.d.set][t];
 
-/* ---------- daily reward / quests ---------- */
-const DR = [{ c: 50 }, { p: 'freeze', n: 1 }, { c: 100 }, { p: 'mega', n: 1 }, { c: 150 }, { p: 'tap', n: 2 }, { c: 300, p: 'mega', n: 2 }];
-const PW_ICON = { mega: '💥', freeze: '❄️', tap: '➕' }, PW_NAME = { mega: 'Mega Blast', freeze: 'Freeze', tap: '+1 Tap' };
-const drLabel = r => (r.c ? r.c + '🪙' : '') + (r.c && r.p ? ' + ' : '') + (r.p ? r.n + PW_ICON[r.p] : '');
-function dailyState() {
-  const d = Save.d.daily, t = todayStr();
-  if (d.last === t) return { claimed: true, idx: (d.streak - 1) % 7 };
-  return { claimed: false, idx: (d.last === yesterdayStr() ? d.streak : 0) % 7 };
+/* ---------- boot ---------- */
+Save.load();
+bus.toast = toast;
+const scene = new ChessScene($('#c'));
+const G = { mode: null, human: 0, level: 2, board: null, moves: [], sans: [], legal: [], over: false, busy: false, thinking: false, sel: -1, targets: [], clocks: [0, 0], tc: TIMES[0], hints: 0, undos: 0, paused: false, startFen: E.START_FEN, id: 0, tick: null, captured: [[], []], lastMove: null };
+
+function applyStyle() { scene.setStyle({ board: Save.d.board, pcolor: Save.d.pcolor, set: Save.d.set, quality: Save.d.quality, speed: Save.d.speed }); }
+applyStyle();
+
+let toastT;
+function toast(msg, ms = 1900) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), ms); }
+function modal(html) { $('#card').innerHTML = html; $('#modal').classList.remove('hidden'); G.paused = G.mode && !G.over ? true : G.paused; }
+function closeModal() { $('#modal').classList.add('hidden'); if (G.mode && !G.over) G.paused = false; }
+const modalOpen = () => !$('#modal').classList.contains('hidden');
+$('#card').addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b || b.disabled) return; Sfx.click();
+  const fn = ACT[b.dataset.act]; if (fn) fn(b.dataset.a, b);
+});
+$('#modal').addEventListener('click', e => { if (e.target.id === 'modal' && !G.over && ($('#card').dataset.dismiss === '1')) closeModal(); });
+
+/* ---------- AI worker ---------- */
+let worker = null, reqId = 0; const pending = new Map();
+function startWorker() {
+  try {
+    worker = new Worker('js/ai-worker.js');
+    worker.onmessage = ev => { const p = pending.get(ev.data.id); if (p) { pending.delete(ev.data.id); p(ev.data); } };
+    worker.onerror = () => { worker = null; };
+  } catch (e) { worker = null; }
 }
-const QDEF = [
-  { id: 'pop', t: n => `Pop ${n} orbs`, targets: [60, 90, 130], reward: 40 },
-  { id: 'win', t: n => `Clear ${n} levels`, targets: [2, 3, 4], reward: 50 },
-  { id: 'chain', t: n => `Make a ${n}-orb chain`, targets: [6, 8, 10], reward: 60 }
-];
-function quests() {
-  const q = Save.d.quest, t = todayStr();
-  if (q.date !== t) { q.date = t; q.p = { pop: 0, win: 0, chain: 0 }; q.claimed = {}; Save.save(); }
-  const r = mulberry(hashStr(t));
-  return QDEF.map(d => ({ ...d, target: d.targets[Math.floor(r() * 3)] }));
+startWorker();
+function askAI(payload) {
+  return new Promise(resolve => {
+    const id = ++reqId, data = { id, startFen: G.startFen, moves: G.moves.slice(), ...payload };
+    if (worker) { pending.set(id, resolve); worker.postMessage(data); return; }
+    setTimeout(() => { // fallback: run on the main thread
+      const b = new E.Board(data.startFen); for (const m of data.moves) b.make(m);
+      const res = data.hint ? new E.Searcher().search(b, 4, 1200) : E.chooseMove(b, data.level); resolve({ id, move: res.move, score: res.score || 0 });
+    }, 30);
+  });
 }
-function questProg(id, v, max) { quests(); const p = Save.d.quest.p; p[id] = max ? Math.max(p[id], v) : p[id] + v; }
 
 /* ---------- screens ---------- */
-function refreshHome() {
-  const d = Save.d;
-  $('#homeCoins').textContent = '🪙 ' + d.coins; $('#hudCoins').textContent = '🪙 ' + d.coins;
-  $('#homeLevel').textContent = d.level; $('#homeWorld').textContent = worldFor(d.level).name;
-  $('#homeStars').textContent = '★ ' + Save.totalStars();
-  $('#dotDaily').classList.toggle('hidden', dailyState().claimed);
-  $('#dotChal').classList.toggle('hidden', d.dailyChallenge.done === todayStr());
-  $('#dotSpin').classList.toggle('hidden', !(spinState().free));
-  $('#dotQuest').classList.toggle('hidden', !quests().some(q => d.quest.p[q.id] >= q.target && !d.quest.claimed[q.id]));
-}
 function showHome() {
-  A.mode = 'home'; A.def = null; A.s = null; A.outcome = null; closeModal();
-  $('#home').classList.remove('hidden'); $('#hud').classList.add('hidden'); resetAttract(); refreshHome();
+  closeModal(); clearInterval(G.tick); G.mode = null; G.id++; G.thinking = false;
+  $('#hud').classList.add('hidden'); $('#home').classList.remove('hidden');
+  const d = Save.d; $('#homeCoins b').textContent = d.coins; $('#homeRating b').textContent = d.rating;
+  $('#btnContinue').classList.toggle('hidden', !d.game);
+  $('#dotGift').classList.toggle('hidden', dailyState().claimed);
+  scene.loadPosition(new E.Board().b); scene.setMenuSpin(true); scene.resetCamera('white', true); scene.setSph(0.6, 0.9, scene.fitDist * 0.82);
+  scene.running = true;
 }
-function resetAttract() {
-  const def = genRaw(7, 1234 + Math.floor(Math.random() * 999), false); def.world = worldFor(Save.d.level);
-  A.home = makeState(def); A.homeT = 1.2;
+function dailyState() {
+  const d = Save.d.daily, t = todayStr(); if (d.last === t) return { claimed: true, idx: (d.streak - 1) % 7 };
+  return { claimed: false, idx: (d.last === yesterdayStr() ? d.streak : 0) % 7 };
 }
+function dstr(dt) { return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0'); }
+const todayStr = () => dstr(new Date()), yesterdayStr = () => dstr(new Date(Date.now() - 864e5));
 
-function startLevel(n, dailyKey) {
-  closeModal(); Sfx.init();
-  const def = genLevel(n, dailyKey);
-  A.def = def; A.dailyKey = dailyKey || null; A.s = makeState(def); A.mode = 'play';
-  A.tapsLeft = def.taps; A.tapsUsed = 0; A.extraTaps = 0; A.mega = false; A.score = 0; A.coinsRun = 0; A.bestChain = 0;
-  A.outcome = null; A.timer = 0; A.continued = false; A.paused = false; R.parts = []; R.pops = [];
+/* ---------- game start / resume ---------- */
+function newGame(o, resume) {
+  closeModal(); Sfx.init(); Sfx.music(); G.id++;
+  G.mode = o.mode; G.level = o.level || 2; G.human = o.human || 0; G.tc = TIMES.find(t => t.id === o.time) || TIMES[0];
+  G.board = new E.Board(); G.startFen = E.START_FEN; G.moves = []; G.sans = []; G.over = false; G.busy = false; G.thinking = false; G.paused = false; G.sel = -1; G.targets = []; G.captured = [[], []]; G.lastMove = null;
+  G.hints = resume ? resume.hints : CFG.hintsPerGame; G.undos = resume ? resume.undos : CFG.undosPerGame;
+  G.clocks = [G.tc.base, G.tc.base];
+  if (resume) {
+    G.clocks = resume.clocks;
+    for (const m of resume.moves) { G.sans.push(G.board.san(m)); trackCapture(G.board, m); G.board.make(m); G.moves.push(m); }
+    G.lastMove = G.moves.length ? [G.moves[G.moves.length - 1] & 63, (G.moves[G.moves.length - 1] >> 6) & 63] : null;
+  }
+  G.legal = G.board.legal();
+  scene.setMenuSpin(false); scene.loadPosition(G.board.b); viewIdx = G.mode === 'ai' && G.human ? 1 : 0;
+  if (G.lastMove) scene.markLast(...G.lastMove);
+  const st = G.board.status(); if (st.check) scene.markCheck(G.board.kingSq[G.board.turn]);
   $('#home').classList.add('hidden'); $('#hud').classList.remove('hidden');
-  $('#hudLevel').textContent = dailyKey ? '🏆 Daily Challenge' : 'Level ' + n;
-  $('#hint').classList.toggle('hidden', !(!dailyKey && n <= 3));
-  $('#hint').textContent = n === 1 ? '👆 Tap anywhere to blast!' : n === 2 ? 'Pop orbs to make chain reactions!' : 'Fewer taps = more ⭐';
-  Save.d.stats.played++; Save.save(); refreshHud(); R.text(CFG.W / 2, 70, def.daily ? 'DAILY CHALLENGE' : 'LEVEL ' + n, '#fff', 26);
+  const view = G.mode === 'ai' ? (G.human ? 'black' : 'white') : (G.board.turn ? 'black' : 'white');
+  scene.resetCamera(G.mode === 'pvp' && !Save.d.autoRotate ? 'white' : view, !!resume ? false : false);
+  setupBars(); updateHud(); startClock(); saveGame();
+  if (G.mode === 'ai' && G.board.turn !== G.human) aiMove();
 }
-function refreshHud() {
-  $('#hudScore').textContent = A.score; $('#hudCoins').textContent = '🪙 ' + Save.d.coins;
-  const total = A.def ? A.def.taps + A.extraTaps : 0;
-  $('#pips').innerHTML = Array.from({ length: total }, (_, i) => `<div class="pip${i >= A.tapsLeft ? ' off' : ''}"></div>`).join('');
-  for (const k of ['mega', 'freeze', 'tap']) { const n = Save.d.inv[k]; const b = $('#n-' + k); b.textContent = n > 0 ? n : '+'; b.classList.toggle('zero', n <= 0); }
-  $('[data-pw=mega]').classList.toggle('armed', A.mega);
+function trackCapture(b, m) {
+  const flag = (m >> 16) & 15, to = (m >> 6) & 63, us = b.turn;
+  if (flag & E.F_CAP) { const v = (flag & E.F_EP) ? E.P : (b.b[to] & 7); G.captured[us].push(TCH[v]); }
+}
+function setupBars() {
+  const ai = G.mode === 'ai', L = E.LEVELS[G.level];
+  const bottomColor = ai ? G.human : 0, topColor = bottomColor ^ 1;
+  G.bottomColor = bottomColor;
+  $('#nameBot').textContent = ai ? 'You' : (bottomColor ? 'Black' : 'White') + ' · Player ' + (bottomColor + 1);
+  $('#nameTop').textContent = ai ? `Computer · ${L.name}` : (topColor ? 'Black' : 'White') + ' · Player ' + (topColor + 1);
+  $('#avBot').textContent = bottomColor ? '♚︎' : '♔︎'; $('#avTop').textContent = ai ? '🤖' : (topColor ? '♚︎' : '♔︎');
+  $('#btnHint').classList.toggle('hidden', !ai); $('#btnUndo').classList.toggle('hidden', false);
+}
+function fmt(s) { s = Math.max(0, Math.ceil(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+function updateHud() {
+  const b = G.board; if (!b) return;
+  const bot = G.bottomColor, top = bot ^ 1;
+  $('#capBot').textContent = G.captured[bot].map(glyph).join(''); $('#capTop').textContent = G.captured[top].map(glyph).join('');
+  $('#barBot').classList.toggle('active', !G.over && b.turn === bot); $('#barTop').classList.toggle('active', !G.over && b.turn === top);
+  if (G.tc.base) { $('#clockBot').textContent = fmt(G.clocks[bot]); $('#clockTop').textContent = fmt(G.clocks[top]); $('#clockBot').classList.toggle('low', G.clocks[bot] < 20); $('#clockTop').classList.toggle('low', G.clocks[top] < 20); }
+  else { $('#clockBot').textContent = ''; $('#clockTop').textContent = ''; }
+  const strip = $('#moves'); const n = G.sans.length, out = [];
+  for (let i = Math.max(0, n - 6); i < n; i++) out.push(`<span class="${i === n - 1 ? 'last' : ''}">${(i % 2 === 0 ? (i / 2 + 1) + '. ' : '')}${G.sans[i]}</span>`);
+  strip.innerHTML = out.reverse().join('');
+  $('#nUndo').textContent = G.undos; $('#nHint').textContent = G.hints;
+  $('#think').classList.toggle('hidden', !G.thinking);
+  $('#btnUndo').disabled = G.moves.length === 0 || G.busy || G.thinking || G.over;
+  $('#btnHint').disabled = G.busy || G.thinking || G.over || (G.mode === 'ai' && G.board.turn !== G.human);
+}
+function startClock() {
+  clearInterval(G.tick); if (!G.tc.base) return; let last = performance.now();
+  G.tick = setInterval(() => {
+    const now = performance.now(), dt = (now - last) / 1000; last = now;
+    if (G.over || G.paused || G.moves.length < 1 || G.busy && false) return;
+    const c = G.board.turn; G.clocks[c] -= dt; updateClocksOnly();
+    if (G.clocks[c] <= 0) { G.clocks[c] = 0; updateClocksOnly(); endGame({ result: c ? '1-0' : '0-1', reason: 'time' }); }
+  }, 250);
+}
+function updateClocksOnly() { const bot = G.bottomColor, top = bot ^ 1; $('#clockBot').textContent = fmt(G.clocks[bot]); $('#clockTop').textContent = fmt(G.clocks[top]); $('#clockBot').classList.toggle('low', G.clocks[bot] < 20); $('#clockTop').classList.toggle('low', G.clocks[top] < 20); }
+function saveGame() {
+  if (G.over || !G.mode) { Save.d.game = null; } else Save.d.game = { mode: G.mode, level: G.level, human: G.human, time: G.tc.id, moves: G.moves.slice(), clocks: G.clocks.slice(), hints: G.hints, undos: G.undos };
+  Save.save();
 }
 
 /* ---------- input ---------- */
-let aim = null;
-const tapRadius = () => CFG.tapRadius * (A.mega ? CFG.megaMul : 1);
-const canTap = () => A.mode === 'play' && !A.paused && !A.outcome && A.tapsLeft > 0;
-const inArena = p => p.x >= 0 && p.y >= 0 && p.x <= CFG.W && p.y <= CFG.H;
-function fireTap(p) {
-  if (!canTap() || !inArena(p)) return;
-  if (A.s.pillars.some(q => Math.hypot(q.x - p.x, q.y - p.y) < q.r)) { Sfx.bad(); R.text(p.x, p.y, '✖', '#ff8a8a', 22); return; }
-  A.tapsLeft--; A.tapsUsed++;
-  const rad = tapRadius();
-  if (A.mega) { A.mega = false; Save.d.inv.mega--; Save.save(); }
-  A.s.roots[A.tapsUsed] = 0; addExplosion(A.s, p.x, p.y, rad, 0, A.tapsUsed, 0);
-  if (A.s.frozen) A.s.freezeUntilSettled = true;
-  R.rings.push({ x: p.x, y: p.y, r: 8, life: 0.4, max: 0.4, color: world().accent }); Sfx.tap(); Sfx.buzz(12);
-  $('#hint').classList.add('hidden'); refreshHud();
-}
-cv.addEventListener('pointerdown', e => {
+scene.onPick = sq => {
   Sfx.init(); Sfx.music();
-  if (!canTap()) return;
-  aim = R.toLogical(e.clientX, e.clientY); try { cv.setPointerCapture(e.pointerId); } catch (_) {}
-});
-cv.addEventListener('pointermove', e => { if (aim) aim = R.toLogical(e.clientX, e.clientY); });
-cv.addEventListener('pointerup', e => { if (!aim) return; const p = R.toLogical(e.clientX, e.clientY); aim = null; fireTap(p); });
-cv.addEventListener('pointercancel', () => { aim = null; });
-$('#powerbar').addEventListener('click', e => {
-  const b = e.target.closest('.pw'); if (!b || A.mode !== 'play' || A.outcome === 'win') return;
-  Sfx.click(); const k = b.dataset.pw, inv = Save.d.inv;
-  if (inv[k] <= 0) return offerPower(k);
-  if (k === 'mega') { A.mega = !A.mega; toast(A.mega ? '💥 Next blast is MEGA' : 'Mega cancelled'); }
-  else if (k === 'freeze') { if (A.s.frozen) return; inv.freeze--; A.s.frozen = true; toast('❄️ Frozen – aim carefully, then tap!'); }
-  else if (k === 'tap') { inv.tap--; A.tapsLeft++; A.extraTaps++; if (A.outcome === 'lose') { A.outcome = null; A.timer = 0; } toast('+1 tap'); }
-  Save.save(); refreshHud();
-});
-$('#btnPause').onclick = () => { if (A.mode !== 'play') return; Sfx.click(); A.paused = true; modal(`<h2>Paused</h2><div class="col">
-  <button class="btn primary" data-act="resume">Resume</button><button class="btn" data-act="restart">Restart</button>
-  <button class="btn ghost" data-act="home">Home</button></div>`); };
-$('#btnPlay').onclick = () => { Sfx.init(); Sfx.click(); startLevel(Save.d.level); };
-$('#btnDaily').onclick = () => { Sfx.init(); Sfx.click(); showDaily(); };
-$('#btnChallenge').onclick = () => { Sfx.init(); Sfx.click(); showChallenge(); };
-$('#btnQuests').onclick = () => { Sfx.init(); Sfx.click(); showQuests(); };
-$('#btnSpin').onclick = () => { Sfx.init(); Sfx.click(); showSpin(); };
-$('#btnLevels').onclick = () => { Sfx.init(); Sfx.click(); showLevels(); };
-$('#btnShop').onclick = () => { Sfx.init(); Sfx.click(); showShop(); };
-$('#btnSettings').onclick = () => { Sfx.init(); Sfx.click(); showSettings(); };
-$('#hudCoins').onclick = () => showShop(); $('#homeCoins').onclick = () => showShop();
-
-/* ---------- modal plumbing ---------- */
-function modal(html) { $('#card').innerHTML = html; $('#modal').classList.remove('hidden'); if (A.mode === 'play') A.paused = true; }
-function closeModal() { $('#modal').classList.add('hidden'); A.paused = false; }
-$('#card').addEventListener('click', e => { const b = e.target.closest('[data-act]'); if (!b || b.disabled) return; Sfx.click(); ACT[b.dataset.act] && ACT[b.dataset.act](b.dataset.a, b); });
-
-function addCoins(n) { Save.d.coins += n; Save.save(); refreshHome(); if (A.mode === 'play') $('#hudCoins').textContent = '🪙 ' + Save.d.coins; }
-function spend(n) { if (Save.d.coins < n) { toast('Not enough coins'); return false; } Save.d.coins -= n; Save.save(); refreshHome(); return true; }
-function grantReward(r) { if (r.c) addCoins(r.c); if (r.p) { Save.d.inv[r.p] += r.n; Save.save(); } Sfx.coin(); }
-
-/* ---------- result / flow ---------- */
-function finishWin() {
-  const d = Save.d, def = A.def, par = def.par;
-  const stars = A.tapsUsed <= par ? 3 : A.tapsUsed <= par + 1 ? 2 : 1;
-  let coins = 10 + stars * 5 + Math.floor(def.orbs.length / 3) + A.coinsRun, first = false;
-  if (def.daily) { first = d.dailyChallenge.done !== todayStr(); if (first) { coins += 100 + stars * 40; d.dailyChallenge.done = todayStr(); } }
-  else { const key = def.n; if ((d.stars[key] || 0) < stars) d.stars[key] = stars; if (d.level === def.n) d.level++; }
-  d.stats.wins++; d.stats.bestChain = Math.max(d.stats.bestChain, A.bestChain); d.finished++;
-  questProg('win', 1); questProg('chain', A.bestChain, true);
-  let chest = '';
-  if (!def.daily && def.n % 10 === 0 && !d.chests.includes(def.n)) {
-    d.chests.push(def.n); coins += 150; for (const k in d.inv) d.inv[k] += 1;
-    chest = `<div class="stat"><span>🎁 World chest</span><span>+150🪙 +1 each power-up</span></div>`;
-  }
-  A.reward = coins; addCoins(coins); Save.save(); Sfx.win(); Sfx.buzz(40);
-  modal(`<h2>${def.daily ? 'Challenge Complete!' : 'Level Cleared!'}</h2>
-    <div class="stars">${[1, 2, 3].map(i => `<span class="s ${i <= stars ? 'on' : ''}" style="animation-delay:${i * 0.25}s">★</span>`).join('')}</div>
-    <div class="stat"><span>Taps used</span><span>${A.tapsUsed} / par ${par}</span></div>
-    <div class="stat"><span>Best chain</span><span>${A.bestChain} 🔥</span></div>
-    <div class="stat"><span>Score</span><span>${A.score}</span></div>
-    <div class="stat"><span>Coins</span><span>+${coins} 🪙</span></div>${chest}
-    <div class="col"><button class="btn primary" data-act="next">${def.daily ? 'Home' : 'Next Level ▶'}</button>
-    <button class="btn ad" data-act="double" id="dbl">▶ Double coins (+${coins})</button>
-    <div class="row"><button class="btn ghost" data-act="restart">Replay</button><button class="btn ghost" data-act="share">Share</button></div></div>`);
-}
-function finishLose() {
-  Sfx.lose(); const left = aliveCount(A.s);
-  modal(`<h2>Out of taps!</h2><p>${left} orb${left > 1 ? 's' : ''} left. ${left <= 3 ? 'So close!' : 'Give it another go!'}</p>
-    <div class="col">${A.continued ? '' : `<button class="btn ad" data-act="cont">▶ Watch ad: +2 taps</button>
-    <button class="btn" data-act="contCoin">+2 taps · 🪙 ${CFG.powerCost.tap * 2}</button>`}
-    <button class="btn primary" data-act="restart">Try again</button><button class="btn ghost" data-act="home">Home</button></div>`);
-}
-function continueRun() { closeModal(); A.continued = true; A.tapsLeft += 2; A.extraTaps += 2; A.outcome = null; A.timer = 0; refreshHud(); }
-
-const ACT = {
-  resume() { closeModal(); A.paused = false; },
-  async restart() {
-    if (A.outcome === 'lose-shown' && A.def && !A.def.daily) { closeModal(); await Ads.interstitial(A.def.n); }
-    A.def ? startLevel(A.def.n, A.dailyKey) : startLevel(Save.d.level);
-  },
-  home() { showHome(); },
-  async next() {
-    if (A.def && A.def.daily) return showHome();
-    const n = A.def.n; closeModal(); await Ads.interstitial(n); startLevel(Save.d.level);
-  },
-  async double(a, b) { b.disabled = true; if (await Ads.rewarded()) { addCoins(A.reward); toast('+' + A.reward + ' 🪙 bonus!'); b.textContent = 'Doubled ✓'; } else b.disabled = false; },
-  async cont() { if (await Ads.rewarded()) continueRun(); },
-  contCoin() { if (spend(CFG.powerCost.tap * 2)) continueRun(); },
-  async share() {
-    const txt = `I just cleared Level ${A.def.n} in Blast Bloom with a ${A.bestChain}-orb chain! 💥 Can you beat it?`;
-    try { if (navigator.share) await navigator.share({ text: txt }); else { await navigator.clipboard.writeText(txt); toast('Copied to clipboard'); } } catch (e) {}
-  },
-  close() { closeModal(); },
-  // daily reward
-  async claim(a) {
-    const st = dailyState(); if (st.claimed) return;
-    const d = Save.d.daily, mult = a === 'x2' ? 2 : 1;
-    if (mult === 2 && !(await Ads.rewarded())) return;
-    const r = DR[st.idx]; d.streak = (d.last === yesterdayStr() ? d.streak : 0) + 1; d.last = todayStr();
-    for (let i = 0; i < mult; i++) grantReward(r);
-    Save.save(); refreshHome(); showDaily();
-  },
-  playChallenge() { const n = 20 + (dayNum() % 30); startLevel(n, todayStr()); },
-  // quests
-  qclaim(id) { const q = quests().find(x => x.id === id); Save.d.quest.claimed[id] = true; addCoins(q.reward); Sfx.coin(); Save.save(); showQuests(); },
-  // shop
-  async buy(id) { if (await IAP.buy(id)) { const p = CFG.iap[id];
-      if (id === 'remove_ads') Save.d.noAds = true;
-      else if (id === 'starter_pack') { Save.d.starter = true; Save.d.coins += 1200; for (const k in Save.d.inv) Save.d.inv[k] += 3; Save.d.noAds = Save.d.noAds; }
-      else Save.d.coins += p.coins;
-      Save.save(); refreshHome(); toast('Thank you! 💖'); Sfx.coin(); showShop(); } },
-  async freecoins() {
-    const a = Save.d.adCoins, t = todayStr(); if (a.date !== t) { a.date = t; a.n = 0; }
-    if (a.n >= 5) return toast('Come back tomorrow for more!');
-    if (await Ads.rewarded()) { a.n++; addCoins(60); toast('+60 🪙'); showShop(); }
-  },
-  pbuy(k) { if (spend(CFG.powerCost[k])) { Save.d.inv[k]++; Save.save(); toast('Got ' + PW_NAME[k]); Sfx.coin(); refreshHud(); if (A.mode === 'play') closeModal(); else showShop(); } },
-  async pad(k) { if (await Ads.rewarded()) { Save.d.inv[k]++; Save.save(); refreshHud(); closeModal(); toast('Got ' + PW_NAME[k]); } },
-  skin(k) {
-    if (!Save.d.skins.includes(k)) { if (!spend(SKINS[k].cost)) return; Save.d.skins.push(k); }
-    Save.d.skin = k; Save.save(); showShop();
-  },
-  lvl(n) { startLevel(+n); },
-  async spin(a, b) {
-    const sp = spinState(); const viaAd = !sp.free;
-    if (viaAd && sp.ads >= 3) return toast('No more spins today');
-    b.disabled = true;
-    if (viaAd) { if (!(await Ads.rewarded())) { b.disabled = false; return; } Save.d.spin.ads++; } else Save.d.spin.free = false;
-    Save.save();
-    const tot = WHEEL.reduce((x, w) => x + w.w, 0); let r = Math.random() * tot, i = 0;
-    for (; i < WHEEL.length; i++) { if ((r -= WHEEL[i].w) < 0) break; }
-    i = Math.min(i, WHEEL.length - 1);
-    const seg = 360 / WHEEL.length, ang = 360 * 6 + (360 - (i * seg + seg / 2));
-    const el = $('#wheel'); el.style.transition = 'transform 4s cubic-bezier(.12,.7,.1,1)'; el.style.transform = `rotate(${ang}deg)`;
-    let n = 0; const tk = setInterval(() => { Sfx.tone(500 + (n++ % 6) * 40, 0.04, 'square', 0.05); }, 140); setTimeout(() => clearInterval(tk), 3900);
-    setTimeout(() => { grantReward(WHEEL[i]); Sfx.win(); refreshHome(); toast('You won ' + drLabel(WHEEL[i]) + '!'); showSpin(true); }, 4200);
-  },
-  tmusic() { Save.d.music = !Save.d.music; Save.save(); if (Save.d.music) Sfx.music(); else Sfx.music(false); showSettings(); },
-  tsound() { Save.d.sound = !Save.d.sound; Save.save(); showSettings(); }, tvib() { Save.d.vib = !Save.d.vib; Save.save(); showSettings(); },
-  restore() { toast('Purchases restored (if any)'); },
-  reset() { if (confirm('Erase ALL progress?')) { localStorage.removeItem(CFG.saveKey); Save.load(); showHome(); } }
+  if (!G.mode || G.over || G.busy || G.thinking || G.paused || sq < 0) return;
+  if (G.mode === 'ai' && G.board.turn !== G.human) return;
+  const b = G.board, p = b.b[sq];
+  if (G.sel >= 0 && G.targets.some(t => t.sq === sq)) { tryMove(G.sel, sq); return; }
+  if (p && (p >> 3) === b.turn) selectSq(sq); else if (G.sel >= 0) { G.sel = -1; G.targets = []; scene.deselect(); }
 };
-function offerPower(k) {
-  modal(`<h2>${PW_ICON[k]} ${PW_NAME[k]}</h2><p>${{ mega: 'Your next blast is almost 2× bigger.', freeze: 'Orbs stand still so you can aim perfectly.', tap: 'One extra tap.' }[k]}</p>
-   <div class="col"><button class="btn ad" data-act="pad" data-a="${k}">▶ Watch ad – free</button>
-   <button class="btn" data-act="pbuy" data-a="${k}">Buy · 🪙 ${CFG.powerCost[k]}</button><button class="btn ghost" data-act="${A.mode === 'play' ? 'resume' : 'close'}">Cancel</button></div>`);
-  if (A.mode === 'play') A.paused = true;
+function selectSq(sq) {
+  const mv = G.legal.filter(m => (m & 63) === sq), seen = new Map();
+  for (const m of mv) { const to = (m >> 6) & 63; seen.set(to, seen.get(to) || !!((m >> 16) & E.F_CAP)); }
+  G.sel = sq; G.targets = [...seen].map(([s, c]) => ({ sq: s, capture: c }));
+  Sfx.select(); Sfx.buzz(8);
+  scene.select(sq, Save.d.legal ? G.targets : []);
+  if (!mv.length) { toast('No legal moves for this piece'); }
+}
+function tryMove(from, to) {
+  const mv = G.legal.filter(m => (m & 63) === from && ((m >> 6) & 63) === to);
+  if (!mv.length) return;
+  if (mv.length > 1) { // promotion
+    const color = G.board.turn;
+    modal(`<h2>Promote</h2><p>Choose your new piece</p><div class="promo">${['q', 'r', 'b', 'n'].map(t => `<button data-act="promo" data-a="${t}">${glyph(t)}<small>${NAMES[Save.d.set][t]}</small></button>`).join('')}</div>`);
+    G._promo = mv; return;
+  }
+  commit(mv[0]);
+}
+const ACT = {};
+ACT.promo = t => { const code = 'pnbrqk'.indexOf(t) + 1; const m = G._promo.find(x => ((x >> 12) & 7) === code); closeModal(); G._promo = null; if (m) commit(m); };
+
+/* ---------- making moves ---------- */
+async function commit(m) {
+  const b = G.board, gid = G.id; G.busy = true; G.sel = -1; G.targets = []; scene.deselect(false);
+  const from = m & 63, to = (m >> 6) & 63, flag = (m >> 16) & 15, promo = (m >> 12) & 7, us = b.turn;
+  const san = b.san(m, G.legal); let capture = null, castle = null;
+  if (flag & E.F_CAP) capture = { sq: (flag & E.F_EP) ? (us ? to + 8 : to - 8) : to };
+  if (flag & E.F_CASTLE) castle = { from: to > from ? from + 3 : from - 4, to: to > from ? from + 1 : from - 1 };
+  trackCapture(b, m); b.make(m); G.moves.push(m); G.sans.push(san); G.lastMove = [from, to];
+  if (G.tc.inc) G.clocks[us] += G.tc.inc;
+  updateHud();
+  await scene.animateMove({ from, to, capture, castle, promo: promo ? 'pnbrqk'[promo - 1] : null });
+  if (gid !== G.id) return;
+  scene.markLast(from, to);
+  const st = b.status(); G.legal = b.legal(); G.busy = false;
+  if (st.check) scene.markCheck(b.kingSq[b.turn]);
+  if (st.over) { await endGame(st); return; }
+  if (st.check) { Sfx.check(); Sfx.buzz(40); toast('Check!', 1300); }
+  saveGame(); updateHud();
+  if (G.mode === 'pvp' && Save.d.autoRotate) scene.resetCamera(b.turn ? 'black' : 'white');
+  if (G.mode === 'ai' && b.turn !== G.human) aiMove();
+}
+async function aiMove() {
+  const gid = G.id; G.thinking = true; updateHud(); const t0 = performance.now();
+  const res = await askAI({ level: G.level });
+  await sleep(Math.max(0, 700 + Math.random() * 700 - (performance.now() - t0)));
+  if (gid !== G.id || G.over) return;
+  G.thinking = false;
+  let m = res.move; if (!m || !G.legal.includes(m)) m = G.legal[Math.floor(Math.random() * G.legal.length)];
+  commit(m);
 }
 
-/* ---------- menus ---------- */
+/* ---------- undo / hint / view / menu ---------- */
+async function doUndo() {
+  if (G.busy || G.thinking || G.over || !G.moves.length) return;
+  if (G.undos <= 0) { offer('undo'); return; }
+  const n = G.mode === 'ai' ? (G.board.turn === G.human ? Math.min(2, G.moves.length) : 1) : 1;
+  for (let i = 0; i < n; i++) { G.board.unmake(); G.moves.pop(); G.sans.pop(); }
+  G.undos--; G.captured = [[], []]; const b = new E.Board(G.startFen); for (const m of G.moves) { trackCapture(b, m); b.make(m); }
+  G.legal = G.board.legal(); G.sel = -1; G.targets = []; scene.loadPosition(G.board.b);
+  const lm = G.moves[G.moves.length - 1]; G.lastMove = lm ? [lm & 63, (lm >> 6) & 63] : null; if (lm) scene.markLast(...G.lastMove);
+  if (G.board.inCheck()) scene.markCheck(G.board.kingSq[G.board.turn]);
+  Sfx.place(); saveGame(); updateHud();
+  if (G.mode === 'ai' && G.board.turn !== G.human) aiMove();
+  else if (G.mode === 'pvp' && Save.d.autoRotate) scene.resetCamera(G.board.turn ? 'black' : 'white');
+}
+async function doHint() {
+  if (G.busy || G.thinking || G.over) return;
+  if (G.hints <= 0) { offer('hint'); return; }
+  G.hints--; updateHud(); G.thinking = true; $('#think').classList.remove('hidden'); const gid = G.id;
+  const res = await askAI({ hint: true }); if (gid !== G.id) return; G.thinking = false; updateHud();
+  if (res.move) { scene.showHint(res.move & 63, (res.move >> 6) & 63); toast('Try ' + G.board.san(res.move, G.legal), 2600); Sfx.select(); saveGame(); }
+}
+function offer(kind) {
+  const nm = kind === 'hint' ? 'Hints' : 'Undos';
+  modal(`<h2>Out of ${nm.toLowerCase()}</h2><p>Watch a short video to get 3 more ${nm.toLowerCase()} for this game.</p><div class="col"><button class="btn ad" data-act="offerAd" data-a="${kind}">▶ Watch ad · +3 ${nm}</button><button class="btn ghost" data-act="close">No thanks</button></div>`);
+}
+ACT.offerAd = async kind => { if (await Ads.rewarded()) { if (kind === 'hint') G.hints += 3; else G.undos += 3; closeModal(); updateHud(); saveGame(); toast('+3 ' + (kind === 'hint' ? 'hints' : 'undos')); } };
+ACT.close = () => closeModal();
+let viewIdx = 0;
+const VIEWS = [['white', 'White view'], ['black', 'Black view'], ['top', 'Top-down view'], ['side', 'Side view']];
+function cycleView() { viewIdx = (viewIdx + 1) % VIEWS.length; scene.resetCamera(VIEWS[viewIdx][0]); toast(VIEWS[viewIdx][1]); }
+$('#btnUndo').onclick = () => { Sfx.click(); doUndo(); };
+$('#btnHint').onclick = () => { Sfx.click(); doHint(); };
+$('#btnView').onclick = () => { Sfx.click(); cycleView(); };
+$('#btnMenu').onclick = () => { Sfx.click(); showPause(); };
+function showPause() {
+  if (!G.mode) return;
+  modal(`<h2>Paused</h2><div class="col"><button class="btn gold" data-act="close">Resume</button><button class="btn dark" data-act="moveList">Move list</button><button class="btn dark" data-act="settings">Settings</button>
+    ${G.over ? '' : '<button class="btn dark" data-act="resign">Resign</button>'}<button class="btn ghost" data-act="home">Save &amp; exit to menu</button></div>`);
+  $('#card').dataset.dismiss = '1';
+}
+ACT.moveList = () => {
+  let rows = ''; for (let i = 0; i < G.sans.length; i += 2) rows += `<span class="n">${i / 2 + 1}.</span><span>${G.sans[i]}</span><span>${G.sans[i + 1] || ''}</span>`;
+  modal(`<h2>Moves</h2><div class="movelist">${rows || '<span></span><span>No moves yet</span>'}</div><div class="col"><button class="btn ghost" data-act="close">Close</button></div>`);
+};
+ACT.home = () => { saveGame(); showHome(); };
+ACT.resign = () => modal(`<h2>Resign?</h2><p>This counts as a loss.</p><div class="col"><button class="btn dark" data-act="resignYes">Yes, resign</button><button class="btn gold" data-act="close">Keep playing</button></div>`);
+ACT.resignYes = () => { closeModal(); const loser = G.mode === 'ai' ? G.human : G.board.turn; endGame({ result: loser ? '1-0' : '0-1', reason: 'resignation' }); };
+
+/* ---------- game over ---------- */
+async function endGame(st) {
+  if (G.over) return; G.over = true; G.busy = false; G.thinking = false; clearInterval(G.tick); updateHud();
+  const ai = G.mode === 'ai', white = st.result === '1-0', black = st.result === '0-1';
+  const outcome = st.result === '1/2-1/2' ? 'draw' : ((white && G.human === 0) || (black && G.human === 1)) ? (ai ? 'win' : 'win') : 'loss';
+  let coins = 0, dr = 0, title = '', sub = '';
+  const reason = st.reason[0].toUpperCase() + st.reason.slice(1);
+  if (!ai) { title = st.result === '1/2-1/2' ? 'Draw' : (white ? 'White wins!' : 'Black wins!'); sub = reason; Sfx[st.result === '1/2-1/2' ? 'draw' : 'win'](); }
+  else {
+    const d = Save.d, L = E.LEVELS[G.level], score = outcome === 'win' ? 1 : outcome === 'draw' ? 0.5 : 0, exp = 1 / (1 + Math.pow(10, (L.elo - d.rating) / 400));
+    dr = Math.round(32 * (score - exp)); d.rating = Math.max(100, d.rating + dr); d.stats.games++;
+    if (outcome === 'win') { d.stats.wins++; coins = 30 + G.level * 15; d.stats.best = Math.max(d.stats.best, L.elo); } else if (outcome === 'draw') { d.stats.draws++; coins = 20; } else { d.stats.losses++; coins = 10; }
+    d.coins += coins; d.gamesPlayed++;
+    title = outcome === 'win' ? 'Victory!' : outcome === 'draw' ? 'Draw' : 'Defeat'; sub = reason; Sfx[outcome === 'win' ? 'win' : outcome === 'draw' ? 'draw' : 'lose']();
+  }
+  Save.d.game = null; Save.save();
+  if (st.reason === 'checkmate') { const lk = G.board.kingSq[G.board.turn]; scene.kingFall(lk); }
+  await sleep(st.reason === 'checkmate' ? 1500 : 700);
+  G.lastOutcome = { coins, ai };
+  modal(`<h2>${title}</h2><p>${sub}${ai ? ` · vs ${E.LEVELS[G.level].name}` : ''}</p>
+    ${ai ? `<div class="stat"><span>Rating</span><span>${Save.d.rating} (${dr >= 0 ? '+' : ''}${dr})</span></div><div class="stat"><span>Coins earned</span><span>+${coins} 🪙</span></div>` : ''}
+    <div class="col"><button class="btn gold" data-act="rematch">Rematch</button>
+    ${coins ? `<button class="btn ad" data-act="doubleCoins" id="dblBtn">▶ Double coins (+${coins})</button>` : ''}
+    <div class="row"><button class="btn dark" data-act="viewBoard">View board</button><button class="btn dark" data-act="newSetup">New game</button></div>
+    <button class="btn ghost" data-act="homeAfter">Home</button></div>`);
+  $('#card').dataset.dismiss = '0';
+}
+ACT.rematch = async () => { const o = { mode: G.mode, level: G.level, human: G.mode === 'ai' ? G.human ^ 1 : 0, time: G.tc.id }; await Ads.interstitial(); newGame(o); };
+ACT.doubleCoins = async (a, b) => { b.disabled = true; if (await Ads.rewarded()) { Save.d.coins += G.lastOutcome.coins; Save.save(); toast(`+${G.lastOutcome.coins} 🪙 bonus!`); Sfx.coin(); b.textContent = 'Doubled ✓'; } else b.disabled = false; };
+ACT.viewBoard = () => { closeModal(); G.paused = false; toast('Tap Menu to continue'); };
+ACT.newSetup = async () => { await Ads.interstitial(); closeModal(); showHome(); showSetup(G.mode); };
+ACT.homeAfter = async () => { await Ads.interstitial(); showHome(); };
+
+/* ---------- setup ---------- */
+const setup = { mode: 'ai', level: 2, color: 'white', time: 'none' };
+function showSetup(mode) {
+  const ls = Save.d.lastSetup; setup.mode = mode; setup.level = ls.level; setup.color = ls.color; setup.time = ls.time;
+  renderSetup();
+}
+function renderSetup() {
+  const opt = (g, v, label, small) => `<button class="opt ${setup[g] === v ? 'on' : ''}" data-act="set" data-a="${g}:${v}">${label}${small ? `<small>${small}</small>` : ''}</button>`;
+  const ai = setup.mode === 'ai';
+  modal(`<h2>${ai ? 'Play vs Computer' : 'Pass & Play'}</h2>
+   ${ai ? `<h3>Opponent</h3><div class="lvl">${Object.entries(E.LEVELS).map(([k, L]) => opt('level', +k, L.name, '★'.repeat(Math.ceil(k / 1.2)))).join('')}</div>
+   <h3>Your colour</h3><div class="chips">${opt('color', 'white', '♔ White')}${opt('color', 'random', '🎲 Random')}${opt('color', 'black', '♚ Black')}</div>` : '<p>Two players, one phone. The board turns to face whoever is to move.</p>'}
+   <h3>Clock</h3><div class="chips">${TIMES.map(t => opt('time', t.id, t.name)).join('')}</div>
+   <div class="col"><button class="btn gold" data-act="start">Start game</button><button class="btn ghost" data-act="close">Cancel</button></div>`);
+  $('#card').dataset.dismiss = '1';
+}
+ACT.set = a => { const [g, v] = a.split(':'); setup[g] = g === 'level' ? +v : v; renderSetup(); };
+ACT.start = async () => {
+  Save.d.lastSetup = { level: setup.level, color: setup.color, time: setup.time }; Save.save();
+  const human = setup.color === 'black' ? 1 : setup.color === 'random' ? (Math.random() < 0.5 ? 0 : 1) : 0;
+  newGame({ mode: setup.mode, level: setup.level, human: setup.mode === 'ai' ? human : 0, time: setup.time });
+};
+$('#btnAI').onclick = () => { Sfx.init(); Sfx.click(); showSetup('ai'); };
+$('#btnPvP').onclick = () => { Sfx.init(); Sfx.click(); showSetup('pvp'); };
+$('#btnContinue').onclick = () => { Sfx.init(); Sfx.click(); const g = Save.d.game; if (g) newGame({ mode: g.mode, level: g.level, human: g.human, time: g.time }, g); };
+
+/* ---------- daily / shop / settings / stats / help ---------- */
 function showDaily() {
   const st = dailyState();
-  modal(`<h2>Daily Reward</h2><p>Come back every day – day 7 is the big one!</p><div class="days">
-   ${DR.map((r, i) => `<div class="day ${i === st.idx && !st.claimed ? 'cur' : ''} ${(i < st.idx || (st.claimed && i <= st.idx)) ? 'done' : ''}">Day ${i + 1}<i>${r.c && r.p ? '🎁' : r.c ? '🪙' : PW_ICON[r.p]}</i>${drLabel(r)}</div>`).join('')}</div>
-   <div class="col">${st.claimed ? '<button class="btn" disabled>Claimed ✓ – see you tomorrow</button>' :
-    `<button class="btn primary" data-act="claim">Claim ${drLabel(DR[st.idx])}</button><button class="btn ad" data-act="claim" data-a="x2">▶ Claim 2×</button>`}
-   <button class="btn ghost" data-act="close">Close</button></div>`);
+  modal(`<h2>Daily Reward</h2><p>Come back every day – day 7 is the big one!</p><div class="days">${CFG.daily.map((c, i) => `<div class="day ${i === st.idx && !st.claimed ? 'cur' : ''} ${(i < st.idx || (st.claimed && i <= st.idx)) ? 'done' : ''}">Day ${i + 1}<i>${i === 6 ? '🎁' : '🪙'}</i>${c}</div>`).join('')}</div>
+   <div class="col">${st.claimed ? '<button class="btn" disabled>Claimed ✓ – see you tomorrow</button>' : `<button class="btn gold" data-act="claim">Claim ${CFG.daily[st.idx]} 🪙</button><button class="btn ad" data-act="claim" data-a="x2">▶ Claim 2×</button>`}<button class="btn ghost" data-act="close">Close</button></div>`);
+  $('#card').dataset.dismiss = '1';
 }
-const WHEEL = [{ c: 30, w: 22 }, { p: 'mega', n: 1, w: 12 }, { c: 60, w: 18 }, { p: 'freeze', n: 1, w: 12 }, { c: 100, w: 10 }, { p: 'tap', n: 1, w: 12 }, { c: 250, w: 3 }, { c: 50, w: 11 }];
-function spinState() { const sp = Save.d.spin, t = todayStr(); if (sp.date !== t) { sp.date = t; sp.free = true; sp.ads = 0; Save.save(); } return sp; }
-function showSpin(keep) {
-  const sp = spinState(), seg = 360 / WHEEL.length, cols = ['#ff6b9d', '#7bed9f', '#ffb347', '#70a1ff', '#c56cf0', '#ffe66d', '#ff595e', '#48cae4'];
-  const grad = WHEEL.map((w, i) => `${cols[i]} ${i * seg}deg ${(i + 1) * seg}deg`).join(',');
-  const labels = WHEEL.map((w, i) => `<span class="wl" style="transform:rotate(${i * seg + seg / 2}deg) translateY(-92px)">${w.c ? w.c : ''}${w.c && w.p ? '+' : ''}${w.p ? PW_ICON[w.p] : (w.c ? '🪙' : '')}</span>`).join('');
-  const html = `<h2>🎡 Lucky Spin</h2><p>${sp.free ? 'Your free daily spin is ready!' : sp.ads < 3 ? 'Watch an ad for another spin (' + (3 - sp.ads) + ' left today)' : 'Come back tomorrow!'}</p>
-   <div class="wheelwrap"><div class="ptr">▼</div><div id="wheel" style="background:conic-gradient(${grad})">${labels}<div class="hub">GO</div></div></div>
-   <div class="col"><button class="btn ${sp.free ? 'primary' : 'ad'}" data-act="spin" ${(!sp.free && sp.ads >= 3) ? 'disabled' : ''}>${sp.free ? 'SPIN FREE' : '▶ Watch ad & spin'}</button><button class="btn ghost" data-act="close">Close</button></div>`;
-  modal(html);
-}
-function showLevels() {
-  const cur = Save.d.level, from = Math.max(1, cur - 29), items = [];
-  for (let n = cur; n >= from; n--) { const st = Save.d.stars[n] || 0; items.push(`<button class="lv ${n === cur ? 'cur' : ''}" data-act="lvl" data-a="${n}"><b>${n}</b><span>${[1, 2, 3].map(i => i <= st ? '★' : '☆').join('')}</span></button>`); }
-  modal(`<h2>Levels</h2><p>Replay a level to earn 3 ★ and more coins.</p><div class="lvgrid">${items.join('')}</div><div class="col"><button class="btn ghost" data-act="close">Close</button></div>`);
-}
-function showChallenge() {
-  const done = Save.d.dailyChallenge.done === todayStr(), n = 20 + (dayNum() % 30);
-  modal(`<h2>🏆 Daily Challenge</h2><p>One fresh, hard puzzle every day – the same for every player. ${done ? 'You already earned today\'s bonus, but you can replay for fun.' : 'Clear it for a <b>big coin bonus</b>!'}</p>
-   <div class="stat"><span>Today's difficulty</span><span>Lv ${n}</span></div>
-   <div class="col"><button class="btn primary" data-act="playChallenge">Play now</button><button class="btn ghost" data-act="close">Close</button></div>`);
-}
-function showQuests() {
-  const q = quests(), p = Save.d.quest.p;
-  modal(`<h2>Daily Quests</h2><p>Refresh every day.</p><div class="list">${q.map(x => { const v = Math.min(p[x.id], x.target), ok = p[x.id] >= x.target, cl = Save.d.quest.claimed[x.id];
-    return `<div class="item"><div class="grow">${x.t(x.target)}<small>${v}/${x.target}</small><div class="bar"><i style="width:${v / x.target * 100}%"></i></div></div>
-     ${cl ? '<span>✓</span>' : ok ? `<button class="btn primary" data-act="qclaim" data-a="${x.id}">+${x.reward}🪙</button>` : `<span>${x.reward}🪙</span>`}</div>`; }).join('')}</div>
-   <div class="col"><button class="btn ghost" data-act="close">Close</button></div>`); refreshHome();
-}
+ACT.claim = async a => {
+  const st = dailyState(); if (st.claimed) return; const d = Save.d.daily;
+  if (a === 'x2' && !(await Ads.rewarded())) return;
+  d.streak = (d.last === yesterdayStr() ? d.streak : 0) + 1; d.last = todayStr();
+  Save.d.coins += CFG.daily[st.idx] * (a === 'x2' ? 2 : 1); Save.save(); Sfx.coin(); showHome(); showDaily();
+};
+$('#btnGift').onclick = () => { Sfx.init(); Sfx.click(); showDaily(); };
 function showShop() {
-  const d = Save.d, I = CFG.iap;
-  const ad = d.adCoins.date === todayStr() ? d.adCoins.n : 0;
+  const d = Save.d, I = CFG.iap, ad = d.adCoins.date === todayStr() ? d.adCoins.n : 0;
+  const row = (kind, key, info, owned, cur, sw) => `<div class="item"><div class="sw" style="background:${sw}"></div><div class="grow">${info.name}<small>${owned ? 'Unlocked' : info.cost + ' coins'}</small></div><button class="btn ${cur ? 'ghost' : owned ? 'gold' : ''}" data-act="${kind}" data-a="${key}">${cur ? 'Equipped' : owned ? 'Equip' : '🪙 ' + info.cost}</button></div>`;
+  const bsw = { wood: 'linear-gradient(135deg,#eed3a4 50%,#7c4a2a 50%)', marble: 'linear-gradient(135deg,#eeeae3 50%,#2a2a2e 50%)', emerald: 'linear-gradient(135deg,#e8dfc2 50%,#2f6e52 50%)', sapphire: 'linear-gradient(135deg,#c9d7ec 50%,#27487d 50%)' };
+  const psw = { ivory: 'linear-gradient(135deg,#d8c7a1 50%,#23201f 50%)', rosewood: 'linear-gradient(135deg,#e6c99a 50%,#5a2a20 50%)', gold: 'linear-gradient(135deg,#dfe3ea 50%,#d0a233 50%)' };
   modal(`<h2>Shop</h2><p>🪙 ${d.coins} coins</p><div class="list">
-   <div class="item"><div class="grow">▶ Free coins<small>${5 - ad} left today · +60 each</small></div><button class="btn ad" data-act="freecoins">Watch</button></div>
-   ${d.noAds ? '' : `<div class="item"><div class="grow">${I.remove_ads.name}<small>${I.remove_ads.desc}</small></div><button class="btn primary" data-act="buy" data-a="remove_ads">${I.remove_ads.price}</button></div>`}
-   ${d.starter ? '' : `<div class="item"><div class="grow">⭐ ${I.starter_pack.name}<small>${I.starter_pack.desc}</small></div><button class="btn primary" data-act="buy" data-a="starter_pack">${I.starter_pack.price}</button></div>`}
-   ${['coins_500', 'coins_1500', 'coins_4000'].map(k => `<div class="item"><div class="grow">🪙 ${I[k].name}</div><button class="btn primary" data-act="buy" data-a="${k}">${I[k].price}</button></div>`).join('')}
-   ${['mega', 'freeze', 'tap'].map(k => `<div class="item"><div class="grow">${PW_ICON[k]} ${PW_NAME[k]}<small>You own ${d.inv[k]}</small></div><button class="btn" data-act="pbuy" data-a="${k}">🪙 ${CFG.powerCost[k]}</button></div>`).join('')}
-   ${Object.entries(SKINS).map(([k, s]) => `<div class="item"><div class="swatches">${s.colors.slice(0, 4).map(c => `<i style="background:${c}"></i>`).join('')}</div><div class="grow">${s.name} orbs</div>
-     <button class="btn ${d.skin === k ? 'ghost' : d.skins.includes(k) ? 'primary' : ''}" data-act="skin" data-a="${k}">${d.skin === k ? 'Equipped' : d.skins.includes(k) ? 'Equip' : '🪙 ' + s.cost}</button></div>`).join('')}
-   </div><div class="col"><button class="btn ghost" data-act="close">Close</button></div>`);
+   <div class="item"><div class="grow">▶ Free coins<small>${5 - ad} left today · +60 each</small></div><button class="btn ad" data-act="freeCoins">Watch</button></div>
+   ${d.noAds ? '' : `<div class="item"><div class="grow">🚫 ${I.remove_ads.name}<small>${I.remove_ads.desc}</small></div><button class="btn gold" data-act="buy" data-a="remove_ads">${I.remove_ads.price}</button></div>`}
+   ${['coins_500', 'coins_1500', 'coins_4000'].map(k => `<div class="item"><div class="grow">🪙 ${I[k].name}</div><button class="btn gold" data-act="buy" data-a="${k}">${I[k].price}</button></div>`).join('')}
+   </div><h3>Boards</h3><div class="list">${Object.entries(BOARDS).map(([k, v]) => row('board', k, v, d.boards.includes(k), d.board === k, bsw[k])).join('')}</div>
+   <h3>Piece colours</h3><div class="list">${Object.entries(PIECE_COLORS).map(([k, v]) => row('pcolor', k, v, d.pcolors.includes(k), d.pcolor === k, psw[k])).join('')}</div>
+   <div class="col"><button class="btn ghost" data-act="close">Close</button></div>`);
+  $('#card').dataset.dismiss = '1';
 }
+ACT.board = k => { if (!Save.d.boards.includes(k)) { if (Save.d.coins < BOARDS[k].cost) return toast('Not enough coins'); Save.d.coins -= BOARDS[k].cost; Save.d.boards.push(k); Sfx.coin(); } Save.d.board = k; Save.save(); applyStyle(); showShop(); };
+ACT.pcolor = k => { if (!Save.d.pcolors.includes(k)) { if (Save.d.coins < PIECE_COLORS[k].cost) return toast('Not enough coins'); Save.d.coins -= PIECE_COLORS[k].cost; Save.d.pcolors.push(k); Sfx.coin(); } Save.d.pcolor = k; Save.save(); applyStyle(); showShop(); };
+ACT.freeCoins = async () => { const a = Save.d.adCoins, t = todayStr(); if (a.date !== t) { a.date = t; a.n = 0; } if (a.n >= 5) return toast('Come back tomorrow!'); if (await Ads.rewarded()) { a.n++; Save.d.coins += 60; Save.save(); toast('+60 🪙'); Sfx.coin(); showShop(); } };
+ACT.buy = async id => { if (await IAP.buy(id)) { const p = CFG.iap[id]; if (id === 'remove_ads') Save.d.noAds = true; else Save.d.coins += p.coins; Save.save(); toast('Thank you! 💖'); Sfx.coin(); showShop(); } };
+$('#btnShop').onclick = () => { Sfx.init(); Sfx.click(); showShop(); };
+$('#homeCoins').onclick = () => { showShop(); };
 function showSettings() {
-  const d = Save.d;
-  modal(`<h2>Settings</h2><div class="list">
-   <div class="switch">Sound<button class="btn ${d.sound ? 'primary' : 'ghost'}" data-act="tsound">${d.sound ? 'ON' : 'OFF'}</button></div>
-   <div class="switch">Music<button class="btn ${d.music ? 'primary' : 'ghost'}" data-act="tmusic">${d.music ? 'ON' : 'OFF'}</button></div>
-   <div class="switch">Vibration<button class="btn ${d.vib ? 'primary' : 'ghost'}" data-act="tvib">${d.vib ? 'ON' : 'OFF'}</button></div>
-   <div class="switch">Restore purchases<button class="btn ghost" data-act="restore">Restore</button></div>
-   <div class="switch">Reset progress<button class="btn ghost" data-act="reset">Reset</button></div></div>
-   <p>Levels: ${d.level - 1} cleared · Best chain: ${d.stats.bestChain} · Orbs popped: ${d.stats.popped}</p>
-   <div class="col"><button class="btn primary" data-act="close">Done</button></div>`);
+  const d = Save.d, sw = (k, label) => `<div class="switch"><div class="grow">${label}</div><button class="btn ${d[k] ? 'gold' : 'ghost'}" data-act="tog" data-a="${k}">${d[k] ? 'ON' : 'OFF'}</button></div>`;
+  const opts = (k, vals) => vals.map(([v, l]) => `<button class="opt ${d[k] === v ? 'on' : ''}" data-act="pick" data-a="${k}:${v}">${l}</button>`).join('');
+  modal(`<h2>Settings</h2><div class="list">${sw('sound', 'Sound effects')}${sw('music', 'Music')}${sw('vib', 'Vibration')}${sw('legal', 'Show legal moves')}${sw('autoRotate', 'Auto-turn board (Pass &amp; Play)')}</div>
+   <h3>Piece style</h3><div class="chips">${opts('set', [['royal', '🐴 Royal Animals'], ['staunton', '♞ Classic']])}</div>
+   <h3>Graphics</h3><div class="chips">${opts('quality', [['auto', 'Auto'], ['high', 'High'], ['medium', 'Medium'], ['low', 'Low']])}</div>
+   <h3>Animation speed</h3><div class="chips">${opts('speed', [[0.7, 'Slow'], [1, 'Normal'], [1.6, 'Fast']])}</div>
+   <div class="col"><button class="btn dark" data-act="restore">Restore purchases</button><button class="btn gold" data-act="close">Done</button></div>`);
+  $('#card').dataset.dismiss = '1';
 }
+ACT.settings = () => showSettings();
+ACT.tog = k => { Save.d[k] = !Save.d[k]; Save.save(); if (k === 'music') Sfx.music(Save.d.music); if (k === 'sound' && !Save.d.sound) Sfx.music(false); showSettings(); };
+ACT.pick = a => { const [k, v] = a.split(':'); Save.d[k] = k === 'speed' ? +v : v; Save.save(); applyStyle(); if (G.board && G.mode && k === 'set') { updateHud(); } showSettings(); };
+ACT.restore = () => toast('Purchases restored (if any)');
+$('#btnSettings').onclick = () => { Sfx.init(); Sfx.click(); showSettings(); };
+$('#btnStats').onclick = () => { Sfx.click(); const s = Save.d.stats;
+  modal(`<h2>Your Stats</h2><div class="stat"><span>Rating</span><span>${Save.d.rating}</span></div><div class="stat"><span>Games vs computer</span><span>${s.games}</span></div><div class="stat"><span>Wins</span><span>${s.wins}</span></div><div class="stat"><span>Draws</span><span>${s.draws}</span></div><div class="stat"><span>Losses</span><span>${s.losses}</span></div><div class="stat"><span>Strongest opponent beaten</span><span>${s.best || '—'}</span></div><div class="col"><button class="btn gold" data-act="close">Close</button></div>`); $('#card').dataset.dismiss = '1'; };
+$('#btnHow').onclick = () => { Sfx.click();
+  modal(`<h2>How to play</h2><p style="text-align:left">Tap a piece, then tap a highlighted square. Drag to rotate the board, pinch to zoom.<br><br>🐴 <b>Horse</b> (knight) leaps in an L.<br>🐘 <b>Elephant</b> (rook) marches in straight lines.<br>🐪 <b>Camel</b> (bishop) crosses diagonally.<br>♛ <b>Queen</b> glides anywhere · ♚ <b>King</b> steps one square · ♟ <b>Soldier</b> (pawn) marches forward, captures diagonally, promotes on the far rank.<br><br>Switch to <b>Classic</b> pieces anytime in Settings.</p><div class="col"><button class="btn gold" data-act="close">Got it</button></div>`); $('#card').dataset.dismiss = '1'; };
 
-/* ---------- main loop ---------- */
-const CHEER = { 5: ['NICE!', '#fff'], 8: ['GREAT!', '#7bed9f'], 12: ['AMAZING!', '#ffd166'], 18: ['INSANE!!', '#ff6b9d'], 25: ['LEGENDARY!!!', '#c56cf0'] };
-function handle(ev, play) {
-  for (const e of ev) {
-    if (e.k === 'crack') { Sfx.crack(); continue; }
-    const o = e.o, col = o.type === 'gold' ? '#ffd700' : o.type === 'bomb' ? '#ff7043' : skin().colors[o.c % 6];
-    R.popFx(o, col, e.n); Sfx.pop(e.n);
-    if (!play) continue;
-    A.score += 10 * e.n; A.bestChain = Math.max(A.bestChain, e.n);
-    Save.d.stats.popped++; questProg('pop', 1);
-    if (o.type === 'gold') { A.coinsRun += 5; R.text(o.x, o.y - 14, '+5🪙', '#ffd700', 14); Sfx.coin(); }
-    if (CHEER[e.n]) { R.text(CFG.W / 2, CFG.H / 2 - 30, CHEER[e.n][0], CHEER[e.n][1], 30 + Math.min(14, e.n / 2)); Sfx.buzz(30); if (e.n >= 12) A.slowUntil = performance.now() + 650; }
-  }
-  if (play && ev.length) $('#hudScore').textContent = A.score;
-}
-function simulate(dt) {
-  const ev = [];
-  if (A.mode === 'home') {
-    A.homeT -= dt; if (A.homeT < 0) {
-      const alive = A.home.orbs.filter(o => o.alive);
-      if (alive.length < 3) resetAttract(); else { const o = alive[Math.floor(Math.random() * alive.length)]; addExplosion(A.home, o.x + (Math.random() - 0.5) * 30, o.y, CFG.tapRadius, 0, 0, 0); }
-      A.homeT = 2.5;
-    }
-    step(A.home, dt, ev); handle(ev, false); return;
-  }
-  if (A.mode !== 'play' || A.paused) return;
-  step(A.s, dt, ev); handle(ev, true);
-  if (A.outcome) { A.timer -= dt; if (A.timer <= 0 && (A.outcome === 'win' || A.outcome === 'lose')) { const w = A.outcome; A.outcome = w + '-shown'; w === 'win' ? finishWin() : finishLose(); } return; }
-  const alive = aliveCount(A.s);
-  if (alive === 0) { A.outcome = 'win'; A.timer = 0.9; $('#hint').classList.add('hidden'); }
-  else if (A.tapsLeft <= 0 && A.s.expl.length === 0) { A.outcome = 'lose'; A.timer = 0.5; }
-}
-let last = performance.now(), acc = 0;
-function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000); last = now;
-  const ts = now < A.slowUntil ? 0.35 : 1; acc += dt * ts;
-  while (acc >= 1 / 60) { simulate(1 / 60); acc -= 1 / 60; }
-  R.update(dt);
-  const opts = { noArena: A.mode === 'home' };
-  if (A.mode === 'play' && aim && canTap()) opts.ghost = { x: aim.x, y: aim.y, r: tapRadius(), bad: !inArena(aim) || A.s.pillars.some(q => Math.hypot(q.x - aim.x, q.y - aim.y) < q.r) };
-  if (A.mode === 'play' && A.def && !A.def.daily && A.def.n === 1 && A.tapsUsed === 0 && !A.paused) {
-    const al = A.s.orbs.filter(o => o.alive); let cx = 0, cy = 0; for (const o of al) { cx += o.x; cy += o.y; }
-    if (al.length) opts.hint = { x: cx / al.length, y: cy / al.length };
-  }
-  R.draw(A.mode === 'home' ? A.home : A.s, A.mode === 'home' ? worldFor(Save.d.level) : A.def.world, skin(), opts);
-  requestAnimationFrame(frame);
-}
-window.addEventListener('resize', () => R.resize());
-window.addEventListener('orientationchange', () => setTimeout(() => R.resize(), 200));
-document.addEventListener('visibilitychange', () => { if (document.hidden) pauseNow(); else Sfx.music(); });
-
+/* ---------- lifecycle ---------- */
 function onBack(exit) {
-  if (!$('#modal').classList.contains('hidden')) { if (A.mode === 'play' && A.outcome !== 'win-shown' && A.outcome !== 'lose-shown') { ACT.resume(); } else if (A.mode === 'play') ACT.home(); else closeModal(); return; }
-  if (A.mode === 'play') return $('#btnPause').click();
+  if (modalOpen()) { closeModal(); return; }
+  if (G.mode) { showPause(); return; }
   exit();
 }
-function pauseNow() { if (A.mode === 'play' && !A.paused && !A.outcome) $('#btnPause').click(); Sfx.music(false); }
-Save.load(); Ads.init(); nativeLifecycle(pauseNow, onBack);
+function pauseNow() { Sfx.music(false); if (G.mode && !G.over && !modalOpen()) showPause(); }
+nativeLifecycle(pauseNow, onBack);
+document.addEventListener('visibilitychange', () => { if (document.hidden) pauseNow(); else Sfx.music(); });
 if ('serviceWorker' in navigator && !Native && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
-R.resize(); resetAttract(); refreshHome(); requestAnimationFrame(frame);
-if (!dailyState().claimed && Save.d.finished >= 1) setTimeout(showDaily, 500);
-window.__A = A; // debug hook
+
+Ads.init();
+setTimeout(() => {
+  showHome(); $('#loading').classList.add('done'); setTimeout(() => $('#loading').remove(), 700);
+  if (!dailyState().claimed && Save.d.gamesPlayed >= 1) setTimeout(showDaily, 600);
+}, 400);
+window.__play = u => { const m = G.board.parseUci(u, G.legal); if (m) commit(m); return !!m; };
+window.__setFen = fen => { closeModal(); G.board.load(fen); G.startFen = fen; G.moves = []; G.sans = []; G.legal = G.board.legal(); G.over = false; G.busy = false; scene.loadPosition(G.board.b); updateHud(); };
+window.__G = G; window.__scene = scene; window.__ACT = ACT; window.__E = E;

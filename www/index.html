@@ -3,65 +3,68 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<meta name="theme-color" content="#1a0b3d">
-<title>Blast Bloom</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%2714%27 fill=%27%23ff6b9d%27/%3E%3Ccircle cx=%2711%27 cy=%2714%27 r=%273%27 fill=%27%23fff%27/%3E%3Ccircle cx=%2721%27 cy=%2714%27 r=%273%27 fill=%27%23fff%27/%3E%3C/svg%3E">
+<meta name="theme-color" content="#120c08">
+<title>Royal Chess 3D</title>
 <link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 <div id="app">
-  <canvas id="c"></canvas>
+  <div id="stage"><canvas id="c"></canvas></div>
 
-  <!-- in-game HUD -->
-  <div id="hud" class="hidden">
-    <div class="hud-top">
-      <button class="icon" id="btnPause" aria-label="Pause">❚❚</button>
-      <div class="hud-mid"><div id="hudLevel">Level 1</div><div id="hudScore">0</div></div>
-      <div class="coin" id="hudCoins">🪙 0</div>
+  <div id="loading"><div class="ld-title">ROYAL CHESS <b>3D</b></div><div class="ld-bar"><i></i></div><div class="ld-sub">Carving the pieces…</div></div>
+
+  <!-- HOME -->
+  <div id="home" class="screen hidden">
+    <div class="home-top">
+      <div class="chip" id="homeCoins">🪙 <b>0</b></div>
+      <div class="chip rating" id="homeRating">♔ <b>800</b></div>
+      <button class="icon" id="btnSettings" aria-label="Settings">⚙</button>
     </div>
-    <div id="pips"></div>
-    <div id="hint" class="hidden"></div>
-    <div id="powerbar">
-      <button class="pw" data-pw="mega"><span class="pi">💥</span><span class="pl">Mega</span><b id="n-mega">0</b></button>
-      <button class="pw" data-pw="freeze"><span class="pi">❄️</span><span class="pl">Freeze</span><b id="n-freeze">0</b></button>
-      <button class="pw" data-pw="tap"><span class="pi">➕</span><span class="pl">+1 Tap</span><b id="n-tap">0</b></button>
+    <div class="logo"><span class="l1">ROYAL</span><span class="l2">CHESS</span><span class="l3">3D</span></div>
+    <div class="tagline">Horse · Elephant · Camel · King</div>
+    <div class="home-bottom">
+      <button class="btn gold big" id="btnContinue">▶ Continue game</button>
+      <button class="btn gold big" id="btnAI">♞ Play vs Computer</button>
+      <button class="btn dark big" id="btnPvP">♟ Pass &amp; Play</button>
+      <div class="home-row">
+        <button class="tile" id="btnGift"><i>🎁</i>Daily<em id="dotGift" class="dot hidden">!</em></button>
+        <button class="tile" id="btnShop"><i>🛍</i>Shop</button>
+        <button class="tile" id="btnStats"><i>📊</i>Stats</button>
+        <button class="tile" id="btnHow"><i>❓</i>Help</button>
+      </div>
     </div>
   </div>
 
-  <!-- home -->
-  <div id="home" class="screen">
-    <div class="home-top">
-      <div class="coin" id="homeCoins">🪙 0</div>
-      <button class="icon" id="btnSettings" aria-label="Settings">⚙️</button>
+  <!-- IN-GAME HUD -->
+  <div id="hud" class="hidden">
+    <div class="bar top" id="barTop">
+      <div class="avatar" id="avTop">♚</div>
+      <div class="who"><b id="nameTop">Computer</b><div class="caps" id="capTop"></div></div>
+      <div class="clock" id="clockTop"></div>
     </div>
-    <div class="logo"><span>BLAST</span><span class="l2">BLOOM</span></div>
-    <div class="tag">Tap. Chain. Bloom.</div>
-    <div class="home-mid">
-      <button class="btn primary big" id="btnPlay"><small id="homeWorld">Candy Meadow</small>PLAY<small>Level <b id="homeLevel">1</b></small></button>
-      <button class="btn ghost" id="btnLevels" style="padding:8px 18px;font-size:14px"><span id="homeStars">★ 0</span> · Levels</button>
+    <div class="movestrip" id="moves"></div>
+    <div class="think hidden" id="think"><span></span><span></span><span></span> thinking</div>
+    <div class="bar bottom" id="barBot">
+      <div class="avatar" id="avBot">♔</div>
+      <div class="who"><b id="nameBot">You</b><div class="caps" id="capBot"></div></div>
+      <div class="clock" id="clockBot"></div>
     </div>
-    <div class="home-row">
-      <button class="tile" id="btnSpin"><i>🎡</i>Spin<em id="dotSpin" class="dot hidden">!</em></button>
-      <button class="tile" id="btnDaily"><i>📅</i>Daily<em id="dotDaily" class="dot hidden">!</em></button>
-      <button class="tile" id="btnChallenge"><i>🏆</i>Challenge<em id="dotChal" class="dot hidden">!</em></button>
-      <button class="tile" id="btnQuests"><i>🎯</i>Quests<em id="dotQuest" class="dot hidden">!</em></button>
-      <button class="tile" id="btnShop"><i>🛍️</i>Shop</button>
+    <div class="dock">
+      <button class="dk" id="btnUndo"><i>↶</i><span>Undo</span><b id="nUndo">3</b></button>
+      <button class="dk" id="btnHint"><i>💡</i><span>Hint</span><b id="nHint">3</b></button>
+      <button class="dk" id="btnView"><i>⟲</i><span>View</span></button>
+      <button class="dk" id="btnMenu"><i>☰</i><span>Menu</span></button>
     </div>
   </div>
 
   <div id="toast"></div>
   <div id="modal" class="overlay hidden"><div class="card" id="card"></div></div>
 </div>
-<script src="js/config.js"></script>
-<script src="js/util.js"></script>
-<script src="js/storage.js"></script>
-<script src="js/audio.js"></script>
-<script src="js/ads.js"></script>
-<script src="js/sim.js"></script>
-<script src="js/levels.js"></script>
-<script src="js/render.js"></script>
-<script src="js/app.js"></script>
+<script src="js/chess-engine.js"></script>
+<script type="importmap">{"imports":{"three":"./vendor/three/three.module.min.js","three/addons/":"./vendor/three/addons/"}}</script>
+<script type="module" src="js/app.js"></script>
 </body>
 </html>

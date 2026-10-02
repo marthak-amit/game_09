@@ -3,6 +3,8 @@ on:
   workflow_dispatch:
   push:
     branches: [main, 'claude/**']
+permissions:
+  contents: write
 jobs:
   apk:
     runs-on: ubuntu-latest
@@ -13,9 +15,19 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 21 }
       - run: npm ci
-      - run: npm run test:levels
+      - run: npm test
       - run: npm run android:add
       - run: npx cap sync android
       - run: cd android && ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
-        with: { name: blast-bloom-debug-apk, path: android/app/build/outputs/apk/debug/app-debug.apk }
+        with: { name: royal-chess-3d-debug-apk, path: android/app/build/outputs/apk/debug/app-debug.apk }
+      # Also publish the APK to an 'apk' branch so it can be downloaded without opening the Actions page.
+      - name: Publish APK to the apk branch
+        run: |
+          mkdir -p /tmp/apk && cp android/app/build/outputs/apk/debug/app-debug.apk /tmp/apk/RoyalChess3D-debug.apk
+          cd /tmp/apk && git init -q && git checkout -q -b apk
+          git config user.name "github-actions" && git config user.email "actions@users.noreply.github.com"
+          echo "Debug build of commit ${GITHUB_SHA}" > README.txt
+          git add . && git commit -q -m "APK build ${GITHUB_SHA}"
+          git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          git push -f origin apk

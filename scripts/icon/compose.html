@@ -1,0 +1,11 @@
+<!doctype html><body style="margin:0"><canvas id="c"></canvas><script>
+const q=new URLSearchParams(location.search), mode=q.get('mode'), W=+q.get('w'), H=+q.get('h'), img=new Image();
+img.onload=()=>{const c=document.getElementById('c');c.width=W;c.height=H;const x=c.getContext('2d');
+ const bg=()=>{const g=x.createRadialGradient(W/2,H*0.42,W*0.05,W/2,H/2,Math.max(W,H)*0.75);g.addColorStop(0,'#5a3a20');g.addColorStop(0.55,'#24150b');g.addColorStop(1,'#0c0704');x.fillStyle=g;x.fillRect(0,0,W,H);};
+ const ring=(cx,cy,r)=>{x.strokeStyle='#e8c26a';x.lineWidth=r*0.035;x.beginPath();x.arc(cx,cy,r,0,7);x.stroke();x.strokeStyle='rgba(232,194,106,.4)';x.lineWidth=r*0.012;x.beginPath();x.arc(cx,cy,r*1.07,0,7);x.stroke();};
+ if(mode==='bg')bg();
+ else if(mode==='fg'){const s=W*0.78;x.drawImage(img,(W-s)/2,(H-s)/2+W*0.02,s,s);}
+ else if(mode==='icon'){bg();ring(W/2,H/2,W*0.40);const s=W*0.84;x.drawImage(img,(W-s)/2,(H-s)/2+W*0.02,s,s);}
+ else if(mode==='splash'){bg();const s=Math.min(W,H)*0.62;x.drawImage(img,(W-s)/2,H*0.5-s*0.62,s,s);x.textAlign='center';x.font='900 '+(W*0.075)+'px Georgia,serif';x.fillStyle='#f3d27a';x.fillText('ROYAL CHESS 3D',W/2,H*0.5+s*0.55);}
+ window.DONE=1;};img.src=q.get('src');
+</script>

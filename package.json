@@ -1,11 +1,12 @@
 {
-  "name": "blast-bloom",
+  "name": "royal-chess-3d",
   "version": "1.0.0",
   "private": true,
-  "description": "Blast Bloom \u2013 chain-reaction puzzle game (HTML5 + Capacitor)",
+  "description": "Royal Chess 3D – realistic 3D chess with a horse, elephant and camel that move like the real animals (HTML5 + Three.js + Capacitor)",
   "scripts": {
     "serve": "npx http-server www -p 8080 -c-1",
-    "test:levels": "node scripts/test-levels.js",
+    "test": "node scripts/test-engine.js",
+    "test:engine": "node scripts/test-engine.js",
     "android:add": "npx cap add android && npx capacitor-assets generate --android && node scripts/patch-android.js",
     "android:sync": "npx cap sync android",
     "android:apk": "npm run android:sync && cd android && ./gradlew assembleDebug"
@@ -13,12 +14,13 @@
   "dependencies": {
     "@capacitor-community/admob": "^7.0.0",
     "@capacitor/android": "^7.0.0",
-    "@capacitor/core": "^7.0.0",
     "@capacitor/app": "^7.0.0",
-    "@capacitor/haptics": "^7.0.0"
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/haptics": "^7.0.0",
+    "three": "0.170.0"
   },
   "devDependencies": {
-    "@capacitor/cli": "^7.0.0",
-    "@capacitor/assets": "^3.0.5"
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^7.0.0"
   }
 }
