@@ -33,15 +33,16 @@ export function localBackend() {
     },
     async signIn(p) { me = { ...me, name: (p === 'google' ? 'Demo Google' : 'Demo Facebook') + ' User', guest: false, provider: p }; sessionStorage.setItem('rc3d_demo_user', JSON.stringify(me)); return me; },
     async signOut() { me = { ...me, guest: true, provider: 'guest', name: guestName() }; sessionStorage.setItem('rc3d_demo_user', JSON.stringify(me)); return me; },
+    async setRating(r) { me.rating = r; sessionStorage.setItem('rc3d_demo_user', JSON.stringify(me)); },
     async setName(n) { me.name = n; sessionStorage.setItem('rc3d_demo_user', JSON.stringify(me)); },
     _p() { return { uid: me.uid, name: me.name, photo: me.photo || '', rating: me.rating || 800 }; },
-    async createRoom({ tc }) {
+    async createRoom({ tc, bet = 0 }) {
       const rooms = rd(LS.rooms); let code; do code = makeCode(); while (rooms[code]);
-      rooms[code] = { code, status: 'waiting', host: B._p(), guest: null, hostColor: Math.random() < 0.5 ? 0 : 1, tc, moves: [], result: null, t: Date.now() }; wr(LS.rooms, rooms); notify(); return code;
+      rooms[code] = { code, status: 'waiting', host: B._p(), guest: null, hostColor: Math.random() < 0.5 ? 0 : 1, tc, bet, moves: [], result: null, t: Date.now() }; wr(LS.rooms, rooms); notify(); return code;
     },
-    async joinRoom(code) {
+    async joinRoom(code, coins = 1e9) {
       const rooms = rd(LS.rooms), r = rooms[code]; if (!r) throw new Error('notfound');
-      if (r.host.uid === me.uid) return r; if (r.guest && r.guest.uid !== me.uid) throw new Error('full'); if (r.status === 'over') throw new Error('over');
+      if (r.host.uid === me.uid) return r; if (!r.guest && (r.bet || 0) > coins) throw new Error('poor:' + r.bet); if (r.guest && r.guest.uid !== me.uid) throw new Error('full'); if (r.status === 'over') throw new Error('over');
       r.guest = B._p(); r.status = 'playing'; wr(LS.rooms, rooms); notify(); return r;
     },
     watchRoom(code, cb) { const f = () => { const r = rd(LS.rooms)[code]; cb(r || null); }; subs.add(f); setTimeout(f, 0); return () => subs.delete(f); },

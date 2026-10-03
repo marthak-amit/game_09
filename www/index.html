@@ -19,22 +19,22 @@
   <!-- HOME -->
   <div id="home" class="screen hidden">
     <div class="home-top">
-      <div class="chip" id="homeCoins">🪙 <b>0</b></div>
-      <div class="chip rating" id="homeRating">♔ <b>800</b></div>
+      <button class="chip" id="homeCoins" aria-label="Coins – open shop">🪙 <b>0</b></button>
+      <button class="chip rating" id="homeRating" aria-label="Your rating and stats">♔ <b>800</b><small>Rating</small></button>
       <button class="icon" id="btnSettings" aria-label="Settings">⚙</button>
     </div>
     <div class="logo"><span class="l1">ROYAL</span><span class="l2">CHESS</span><span class="l3">3D</span></div>
     <div class="tagline">Horse · Elephant · Camel · King</div>
     <div class="home-bottom">
-      <button class="btn gold big" id="btnContinue">▶ Continue game</button>
+      <button class="btn online big" id="btnOnline">🎮 Play</button>
       <button class="btn gold big" id="btnAI">♞ Play vs Computer</button>
-      <button class="btn online big" id="btnOnline">🌐 Play Online</button>
-      <div class="row2"><button class="btn dark big" id="btnPvP">♟ Pass &amp; Play</button><button class="btn dark big" id="btnPuz">🧩 Puzzles<em id="dotPuz" class="dot hidden">!</em></button></div>
+      <button class="btn dark big" id="btnContinue">▶ Continue game</button>
+      <div class="row2"><button class="btn dark big" id="btnPvP">♟ Pass &amp; Play</button><button class="btn dark big" id="btnFriends">👥 Friends</button></div>
       <div class="home-row">
         <button class="tile" id="btnGift"><i>🎁</i>Daily<em id="dotGift" class="dot hidden">!</em></button>
         <button class="tile" id="btnShop"><i>🛍</i>Shop</button>
         <button class="tile" id="btnStats"><i>📊</i>Stats</button>
-        <button class="tile" id="btnHow"><i>❓</i>Help</button>
+        <button class="tile" id="btnPuz"><i>🧩</i>Puzzles<em id="dotPuz" class="dot hidden">!</em></button>
       </div>
     </div>
   </div>
@@ -54,6 +54,7 @@
       <div class="who"><b id="nameBot">You</b><div class="caps" id="capBot"></div></div>
       <div class="clock" id="clockBot"></div>
     </div>
+    <div class="qpop hidden" id="qpop"></div>
     <div class="dock">
       <button class="dk" id="btnUndo"><i>↶</i><span>Undo</span><b id="nUndo">3</b></button>
       <button class="dk hidden" id="btnTurn"><i>🔄</i><span>Turning</span></button>

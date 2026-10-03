@@ -12,7 +12,7 @@ export function nativeLifecycle(onPause, onBack) {
 }
 
 export const Ads = {
-  last: 0, ready: false,
+  last: 0, ready: false, rewardReady: false, interReady: false, rewardLoading: false,
   async init() {
     if (!Native) return;
     try {
@@ -20,7 +20,22 @@ export const Ads = {
       try { const info = await A.requestConsentInfo(); if (info.isConsentFormAvailable && info.status === 'REQUIRED') await A.showConsentForm(); } catch (e) { console.warn('consent', e); }
       await A.initialize({ initializeForTesting: CFG.ads.testing });
       this.ready = true;
+      // keep one rewarded + one interstitial ad loaded in the background, so showing them is instant
+      A.addListener('onRewardedVideoAdLoaded', () => { this.rewardReady = true; this.rewardLoading = false; });
+      A.addListener('onRewardedVideoAdFailedToLoad', () => { this.rewardReady = false; this.rewardLoading = false; setTimeout(() => this.preloadRewarded(), 20000); });
+      A.addListener('interstitialAdLoaded', () => { this.interReady = true; });
+      A.addListener('interstitialAdFailedToLoad', () => { this.interReady = false; setTimeout(() => this.preloadInterstitial(), 30000); });
+      this.preloadRewarded(); this.preloadInterstitial();
     } catch (e) { console.warn('AdMob init failed', e); }
+  },
+  async preloadRewarded() {
+    if (!Native || !this.ready || this.rewardReady || this.rewardLoading) return;
+    this.rewardLoading = true;
+    try { await Capacitor.Plugins.AdMob.prepareRewardVideoAd({ adId: CFG.ads.rewarded, isTesting: CFG.ads.testing }); } catch (e) { this.rewardLoading = false; setTimeout(() => this.preloadRewarded(), 20000); }
+  },
+  async preloadInterstitial() {
+    if (!Native || !this.ready || this.interReady) return;
+    try { await Capacitor.Plugins.AdMob.prepareInterstitial({ adId: CFG.ads.interstitial, isTesting: CFG.ads.testing }); } catch (e) { setTimeout(() => this.preloadInterstitial(), 30000); }
   },
   fake(label, secs) {
     return new Promise(res => {
@@ -33,29 +48,36 @@ export const Ads = {
       b.onclick = () => { el.remove(); res(n <= 0); };
     });
   },
-  /** Rewarded video. Resolves true only if the user earned the reward. */
+  /** Rewarded video. Resolves true only if the user earned the reward. Shows instantly when pre-loaded. */
   async rewarded() {
     if (Native && this.ready) {
       try {
         const A = Capacitor.Plugins.AdMob; let earned = false;
+        if (!this.rewardReady) {   // not loaded yet: say so once and wait (max 10 s) instead of freezing silently
+          bus.toast('Loading ad…', 2500); this.preloadRewarded();
+          for (let i = 0; i < 50 && !this.rewardReady; i++) await new Promise(r => setTimeout(r, 200));
+          if (!this.rewardReady) { bus.toast('No ad available right now – try again in a minute'); return false; }
+        }
         const h = await A.addListener('onRewardedVideoAdReward', () => { earned = true; });
-        await A.prepareRewardVideoAd({ adId: CFG.ads.rewarded, isTesting: CFG.ads.testing });
-        await A.showRewardVideoAd(); h.remove(); return earned;
-      } catch (e) { bus.toast('Ad not available, try again later'); return false; }
+        this.rewardReady = false;
+        try { await A.showRewardVideoAd(); } finally { h.remove(); this.preloadRewarded(); }
+        return earned;
+      } catch (e) { this.rewardReady = false; this.preloadRewarded(); bus.toast('Ad not available, try again later'); return false; }
     }
     if (Native) { bus.toast('Ad not available'); return false; }
     return this.fake('Rewarded video', 3);
   },
-  /** Interstitial after a finished game, frequency-capped, never for ad-free users. */
+  /** Interstitial after a finished game, frequency-capped, never for ad-free users. Never blocks: skipped if not loaded. */
   async interstitial() {
     if (Save.d.noAds || Save.d.gamesPlayed <= CFG.ads.freeGames) return;
     if (Date.now() - this.last < CFG.ads.minGapMs) return;
-    this.last = Date.now();
     if (Native && this.ready) {
-      try { const A = Capacitor.Plugins.AdMob; await A.prepareInterstitial({ adId: CFG.ads.interstitial, isTesting: CFG.ads.testing }); await A.showInterstitial(); } catch (e) {}
+      if (!this.interReady) { this.preloadInterstitial(); return; }
+      this.last = Date.now(); this.interReady = false;
+      try { await Capacitor.Plugins.AdMob.showInterstitial(); } catch (e) {} finally { this.preloadInterstitial(); }
       return;
     }
-    if (!Native) await this.fake('Interstitial', 2);
+    if (!Native) { this.last = Date.now(); await this.fake('Interstitial', 2); }
   }
 };
 

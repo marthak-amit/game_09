@@ -205,22 +205,22 @@ export function moonTexture() {
 /** piece icons painted on the board's border panel, in the exact start-position order (R N B Q K B N R),
     each one directly behind its own file: White's row along the bottom edge, Black's along the top edge (each icon upright for Black) */
 export const LEGEND_ORDER = ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r'];
-export function makeLegendTexture(set) {
-  const S = 1536, c = canvas(S, S), x = c.getContext('2d'), unit = S / 11, royal = set === 'royal';
-  const G = { k: '♚\uFE0E', q: '♛\uFE0E', r: royal ? '🐘' : '♜\uFE0E', b: royal ? '🐪' : '♝\uFE0E', n: royal ? '🐴' : '♞\uFE0E', p: '♟\uFE0E' };
+export function makeLegendTexture(set, icons) {
+  const S = 2048, c = canvas(S, S), x = c.getContext('2d'), unit = S / 11;
   const row = (color, yOff, flip) => {
     LEGEND_ORDER.forEach((t, file) => {
       const px = (file - 3.5) * unit, white = color === 0;
       x.save(); x.translate(S / 2 + px, S / 2 + yOff * unit); if (flip) x.rotate(Math.PI);
-      x.shadowColor = 'rgba(0,0,0,.55)'; x.shadowBlur = 10; x.shadowOffsetY = 3;
-      x.fillStyle = white ? '#f6ecd2' : '#1b1514'; x.beginPath(); x.arc(0, 0, unit * 0.355, 0, 7); x.fill(); x.shadowColor = 'transparent';
+      x.shadowColor = 'rgba(0,0,0,.55)'; x.shadowBlur = 14; x.shadowOffsetY = 4;
+      const g = x.createRadialGradient(-unit * 0.1, -unit * 0.12, unit * 0.05, 0, 0, unit * 0.38);
+      if (white) { g.addColorStop(0, '#fffaf0'); g.addColorStop(1, '#e9dcbc'); } else { g.addColorStop(0, '#4a403e'); g.addColorStop(1, '#161111'); }
+      x.fillStyle = g; x.beginPath(); x.arc(0, 0, unit * 0.37, 0, 7); x.fill(); x.shadowColor = 'transparent';
       x.lineWidth = unit * 0.05; x.strokeStyle = white ? '#d9a62e' : '#d0323b'; x.stroke();
-      x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = white ? '#2a1a0a' : '#f6ecd2';
-      const emoji = !G[t].includes('\uFE0E'); x.font = emoji ? `${unit * 0.42}px "Noto Color Emoji","Apple Color Emoji","Segoe UI Emoji",sans-serif` : `900 ${unit * 0.5}px "DejaVu Sans","Segoe UI Symbol",serif`;
-      x.fillText(G[t], 0, emoji ? unit * 0.03 : unit * 0.02);
+      const im = icons && icons[color] && icons[color][t];
+      if (im) { const d = unit * 0.62; x.drawImage(im, -d / 2, -d / 2 - unit * 0.01, d, d); }
       x.restore();
     });
   };
   row(0, 5.05, false); row(1, -5.05, true);
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t;
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 16; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; return t;
 }

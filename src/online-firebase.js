@@ -53,22 +53,23 @@ export function firebaseBackend(config) {
       return loadProfile(auth.currentUser);
     },
     async signOut() { try { if (native() && nativeAuth()) await nativeAuth().signOut(); } catch (e) { /* ignore */ } await signOut(auth); return loadProfile((await signInAnonymously(auth)).user); },
+    async setRating(r) { me.rating = r; await setDoc(doc(db, 'users', me.uid), { rating: r }, { merge: true }); },
     async setName(n) { me.name = n; try { await updateProfile(auth.currentUser, { displayName: n }); } catch (e) { /* ignore */ } await setDoc(doc(db, 'users', me.uid), { name: n }, { merge: true }); },
 
-    async createRoom({ tc }) {
+    async createRoom({ tc, bet = 0 }) {
       for (let i = 0; i < 6; i++) {
         const code = makeCode(), ref = doc(db, 'rooms', code);
-        const ok = await runTransaction(db, async tx => { if ((await tx.get(ref)).exists()) return false; tx.set(ref, { code, status: 'waiting', host: P(), guest: null, hostColor: Math.random() < 0.5 ? 0 : 1, tc, moves: [], result: null, t: Date.now(), players: [me.uid] }); return true; });
+        const ok = await runTransaction(db, async tx => { if ((await tx.get(ref)).exists()) return false; tx.set(ref, { code, status: 'waiting', host: P(), guest: null, hostColor: Math.random() < 0.5 ? 0 : 1, tc, bet, moves: [], result: null, t: Date.now(), players: [me.uid] }); return true; });
         if (ok) return code;
       }
       throw new Error('code-collision');
     },
-    async joinRoom(code) {
+    async joinRoom(code, coins = 1e9) {
       const ref = doc(db, 'rooms', code);
       return runTransaction(db, async tx => {
         const s = await tx.get(ref); if (!s.exists()) throw new Error('notfound'); const r = s.data();
         if (r.host.uid === me.uid || (r.guest && r.guest.uid === me.uid)) return r;
-        if (r.guest) throw new Error('full'); if (r.status === 'over') throw new Error('over');
+        if (r.guest) throw new Error('full'); if (r.status === 'over') throw new Error('over'); if ((r.bet || 0) > coins) throw new Error('poor:' + r.bet);
         tx.update(ref, { guest: P(), status: 'playing', players: [r.host.uid, me.uid] }); return { ...r, guest: P(), status: 'playing' };
       });
     },
@@ -110,4 +111,10 @@ export function firebaseBackend(config) {
     cancelQuick() { if (quick) quick(); }
   };
   return B;
+}
+
+/** public remote config document `config/app` (no sign-in needed) – used for the force-update switch */
+export async function fetchAppConfig(config) {
+  const app = initializeApp(config, 'cfg'), db = initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
+  const s = await getDoc(doc(db, 'config', 'app')); return s.exists() ? s.data() : null;
 }

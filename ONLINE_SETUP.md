@@ -37,3 +37,20 @@ queue collection, so no Cloud Functions (and no paid plan) are needed. If you gr
 - `firestore.rules` – users (own profile), queue (claim-once), rooms (join once, one move per turn by the player whose turn it is, result by a player)
 - Game flow in `www/js/app.js` ("online play" section): hub → create / join / quick match → `beginOnline()` → moves via `pushMove`, received through a Firestore listener and played with the normal move animation.
 - Disconnects: a player who closes the app simply stops moving; use Resign. (Next step: presence + auto-forfeit via a heartbeat field.)
+
+## Force update (you control it from the Firebase console)
+The app reads the public document **Firestore → `config` collection → document `app`** on every start (Android build only).
+Create it once with these fields:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `forceUpdate` | boolean | `true` = blocking "Update required" screen for builds older than `minVersionCode`; `false` = off |
+| `minVersionCode` | number | oldest build still allowed (the Android `versionCode`, = the CI run number of the build) |
+| `latestVersionCode` | number | newest build; older builds get a one-time, dismissible "New version available" prompt |
+| `message` | string (optional) | text shown on the dialog |
+| `updateUrl` | string (optional) | defaults to the Play Store page of `com.marthak.royalchess3d` |
+
+Turn the force update on only after the new build is published; switch `forceUpdate` back to `false` to lift it. **Re-publish `firestore.rules`** – it now contains a public-read rule for `config/*`.
+
+## Analytics & Crashlytics
+Firebase Analytics events (`game_start`, `game_end`, `online_game_start/end`, `room_create/join`, `login`, `purchase`, `ad_reward`, screen views) and Crashlytics (native crashes automatically + JS errors via `recordException`) start working with the same `google-services.json`. Enable them in the Firebase console (Analytics → turned on at project creation; Crashlytics → "Enable").

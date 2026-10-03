@@ -2,7 +2,7 @@
   "name": "royal-chess-3d",
   "version": "1.0.0",
   "private": true,
-  "description": "Royal Chess 3D \u2013 realistic 3D chess with a horse, elephant and camel that move like the real animals (HTML5 + Three.js + Capacitor)",
+  "description": "Royal Chess 3D – realistic 3D chess with a horse, elephant and camel that move like the real animals (HTML5 + Three.js + Capacitor)",
   "scripts": {
     "serve": "npx http-server www -p 8080 -c-1",
     "test": "node scripts/test-engine.js && node scripts/test-puzzles.js",
@@ -14,7 +14,9 @@
   },
   "dependencies": {
     "@capacitor-community/admob": "^7.0.0",
+    "@capacitor-firebase/analytics": "^7.5.0",
     "@capacitor-firebase/authentication": "^7.5.0",
+    "@capacitor-firebase/crashlytics": "^7.5.0",
     "@capacitor/android": "^7.0.0",
     "@capacitor/app": "^7.0.0",
     "@capacitor/core": "^7.0.0",

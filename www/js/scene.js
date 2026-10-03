@@ -64,14 +64,30 @@ export class ChessScene {
     if (init.set) this.set = init.set; if (init.pcolor) this.scheme = init.pcolor; if (init.board) this.boardKey = init.board; if (init.custom) { this.custom = init.custom; this.customJson = JSON.stringify(init.custom); }
     if (init.labels) this.labels = init.labels; if (init.cinema !== undefined) this.cine = init.cinema; if (init.speed !== undefined) this.speed = init.speed;
     this.qualityReq = init.quality || 'high'; this.applyQuality(this.qualityReq); this.bgKey = null; this.kit = this.getKit(this.set, this.scheme);
-    this.ready = (async () => { await this.buildBoard(); await this.setBackground(init.bg || 'wood'); await this.ensureKit(); await this.precompile(); this.live = true; })();
+    this.ready = (async () => { await this.buildBoard(); await this.setBackground(init.bg || 'wood'); await this.ensureKit(); this.legendKey = this.set + '|' + this.scheme; await this.buildLegend(this.legendKey); await this.precompile(); this.live = true; })();
     this.bindInput(); this.last = performance.now();
     new ResizeObserver(() => this.resize()).observe(canvas.parentElement || canvas); this.resize();
     this.resetCamera('white', true);
-    const loop = now => { requestAnimationFrame(loop); if (!this.running || !this.live) { this.last = now; return; } const dt = Math.min(this.maxDt, (now - this.last) / 1000); this.last = now; this.update(dt); this.renderer.render(this.scene, this.camera); };
+    this.lastActive = performance.now(); this.lastDraw = 0;
+    const poke = () => { this.lastActive = performance.now(); };
+    for (const ev of ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'touchstart']) canvas.addEventListener(ev, poke, { passive: true });
+    this.poke = poke;
+    /* render loop: full speed while anything moves; ambient scenes (stars, snow…) at 30 fps; a still board at 10 fps → much cooler/lighter on phones */
+    const loop = now => {
+      requestAnimationFrame(loop); if (!this.running || !this.live) { this.last = now; return; }
+      const busy = this.tweens.length > 0 || this.menuSpin || this.camTween || this.shake > 0.0004 || this.targets.length > 0 || now - this.lastActive < 450 || this.animating();
+      const gap = busy ? 0 : this.bgFx ? 32 : 98; if (now - this.lastDraw < gap) return; this.lastDraw = now;
+      const dt = Math.min(this.maxDt, (now - this.last) / 1000); this.last = now; this._busy = busy; this.update(dt); this.renderer.render(this.scene, this.camera);
+    };
     requestAnimationFrame(loop);
   }
 
+  /** any highlight that pulses or particle still alive? */
+  animating() {
+    const h = this.hl; if ((h.check && h.check.visible) || (h.hintB && h.hintB.visible) || (h.sel && h.sel.visible)) return true;
+    if (this.legendGlows && this.legendGlows[0].visible) return true;
+    for (const sp of this.sprites) if (sp.userData.life > 0) return true; return false;
+  }
   /* ---------- setup ---------- */
   applyQuality(q) {
     this.autoQ = q === 'auto';
@@ -104,7 +120,9 @@ export class ChessScene {
   async precompile() {
     const sc = this.scene; const tmp = [];
     for (const k of ['p', 'n', 'b', 'r', 'q', 'k']) for (const c of [0, 1]) { const m = this.spawn(k, c, c ? 8 + 'pnbrqk'.indexOf(k) : 48 + 'pnbrqk'.indexOf(k)); tmp.push(m); }
+    const hid = []; this.scene.traverse(o => { if (!o.visible && (o.isMesh || o.isSprite || o.isPoints)) { o.visible = true; hid.push(o); } });
     try { if (this.renderer.compileAsync) await this.renderer.compileAsync(sc, this.camera); else this.renderer.compile(sc, this.camera); } catch (e) { /* ignore */ }
+    for (const o of hid) o.visible = false;
     this.clearPieces();
   }
   async ensureKit(set = this.set, scheme = this.scheme) {
@@ -221,8 +239,37 @@ export class ChessScene {
   }
   updateLegend() {
     if (!this.legendMesh) return; const on = this.labels === 'border'; this.legendMesh.visible = on;
-    if (on && this.legendSet !== this.set) { if (this.legendTex) this.legendTex.dispose(); this.legendTex = makeLegendTexture(this.set); this.legendMesh.material.map = this.legendTex; this.legendMesh.material.needsUpdate = true; this.legendSet = this.set; }
-    else if (on && this.legendMesh.material.map !== this.legendTex) { this.legendMesh.material.map = this.legendTex; this.legendMesh.material.needsUpdate = true; }
+    if (!on || (!this.live && !this.legendTex)) return;
+    const key = this.set + '|' + this.scheme;
+    if (this.legendKey !== key) { this.legendKey = key; this.buildLegend(key); }
+    else if (this.legendTex && this.legendMesh.material.map !== this.legendTex) { this.legendMesh.material.map = this.legendTex; this.legendMesh.material.needsUpdate = true; }
+  }
+  /** the border icons are real renders of the 3D pieces (same models + colours as on the board) → always sharp */
+  async buildLegend(key) {
+    const [set, scheme] = key.split('|'), kit = await this.ensureKit(set, scheme); if (this.legendKey !== key) return;
+    const icons = this.renderIcons(kit), tex = makeLegendTexture(set, icons);
+    if (this.legendTex) this.legendTex.dispose(); this.legendTex = tex;
+    if (this.legendMesh) { this.legendMesh.material.map = tex; this.legendMesh.material.needsUpdate = true; }
+  }
+  renderIcons(kit) {
+    const R = 256, r = this.renderer, rt = new THREE.WebGLRenderTarget(R, R, { samples: 4, colorSpace: THREE.SRGBColorSpace });
+    const sc = new THREE.Scene(); sc.environment = this.scene.environment; sc.environmentIntensity = 0.8;
+    sc.add(new THREE.HemisphereLight(0xffffff, 0x8a7a66, 1.1)); const dl = new THREE.DirectionalLight(0xffffff, 2.4); dl.position.set(4, 6, 5); sc.add(dl);
+    const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 60), out = [{}, {}], buf = new Uint8Array(R * R * 4);
+    const pr = r.getRenderTarget(), cc = new THREE.Color(); r.getClearColor(cc); const ca = r.getClearAlpha(), sh = r.shadowMap.enabled; r.shadowMap.enabled = false;
+    for (const c of [0, 1]) for (const t of 'rnbqk') {
+      const key = t + c; const tpl = kit.tpl[key] || (kit.tpl[key] = buildPiece(t, kit.set, kit.mats[c]));
+      const m = tpl.root.clone(true); for (const nm of ['base', 'ring']) { const o = m.getObjectByName(nm); if (o) o.parent.remove(o); }
+      sc.add(m); const box = new THREE.Box3().setFromObject(m), ctr = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
+      const half = Math.max(size.y, size.z * 1.0, size.x) * 0.56; cam.left = -half; cam.right = half; cam.top = half; cam.bottom = -half; cam.updateProjectionMatrix();
+      cam.position.set(ctr.x + 12, ctr.y + 1.2, ctr.z); cam.lookAt(ctr);
+      r.setRenderTarget(rt); r.setClearColor(0x000000, 0); r.clear(); r.render(sc, cam);
+      r.readRenderTargetPixels(rt, 0, 0, R, R, buf);
+      const cv = document.createElement('canvas'); cv.width = cv.height = R; const cx = cv.getContext('2d'), id = cx.createImageData(R, R);
+      for (let y = 0; y < R; y++) id.data.set(buf.subarray((R - 1 - y) * R * 4, (R - y) * R * 4), y * R * 4);
+      cx.putImageData(id, 0, 0); out[c][t] = cv; sc.remove(m);
+    }
+    r.setRenderTarget(pr); r.setClearColor(cc, ca); r.shadowMap.enabled = sh; rt.dispose(); return out;
   }
   /** glow on every border icon of the piece type you just selected (rooks a+h, knights b+g, ...) */
   legendFocus(type, color) {
@@ -347,7 +394,7 @@ export class ChessScene {
   wait(sec) { return this.tween(sec, () => {}, E.lin); }
   /** adaptive graphics: if the device can't keep ~30fps, step quality down automatically (only when quality = Auto) */
   govern(dt) {
-    if (!this.autoQ || this.noAdapt || document.hidden) return;
+    if (!this.autoQ || this.noAdapt || document.hidden || !this._busy) return;
     if (this.warmup === undefined) this.warmup = 45; if (this.warmup > 0) { this.warmup--; return; }   // ignore the first frames (shader warm-up)
     this.acc += dt; this.frames++;
     if (this.frames >= 60) {
@@ -367,7 +414,7 @@ export class ChessScene {
     for (const m of this.targets) m.scale.setScalar(m.userData.cap ? 1 + 0.06 * Math.sin(this.t * 6) : pulse);
     if (this.hl.check && this.hl.check.visible) this.hl.check.material.opacity = 0.7 + 0.3 * Math.sin(this.t * 7);
     if (this.hl.hintB && this.hl.hintB.visible) { const o = 0.5 + 0.3 * Math.sin(this.t * 6); this.hl.hintA.material.opacity = o * 0.7; this.hl.hintB.material.opacity = o; }
-    if (this.legendGlow && this.legendGlow.visible) { const k = 1.1 + 0.15 * Math.sin(this.t * 6); this.legendGlow.scale.set(k, k, 1); }
+    if (this.legendGlows) for (const q of this.legendGlows) if (q.visible) { const k = 1.1 + 0.15 * Math.sin(this.t * 6); q.scale.set(k, k, 1); }
     if (this.hl.sel && this.hl.sel.visible) this.hl.sel.material.opacity = 0.4 + 0.15 * Math.sin(this.t * 5);
     if (this.bgFx) this.bgFx.update(dt, this.t);
     for (const p of this.all) if (p.base) { p.base.position.set(p.root.position.x, 0.002, p.root.position.z); p.base.scale.setScalar(p.root.scale.x); }

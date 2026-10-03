@@ -47,3 +47,16 @@ if (fs.existsSync(gp) && fs.existsSync('keystore/royalchess-debug.keystore')) {
     fs.writeFileSync(gp, g); console.log('Debug signing: fixed keystore');
   }
 }
+
+/* ---- Version code/name from the CI run number (needed for the force-update check) + Crashlytics gradle plugin ---- */
+if (fs.existsSync(gp)) {
+  let g = fs.readFileSync(gp, 'utf8'); const n = parseInt(process.env.GITHUB_RUN_NUMBER || '1', 10) || 1;
+  g = g.replace(/versionCode\s+\d+/, `versionCode ${n}`).replace(/versionName\s+"[^"]*"/, `versionName "1.0.${n}"`);
+  if (fs.existsSync('firebase/google-services.json') && !g.includes('firebase.crashlytics')) g = g.replace(/apply plugin: 'com.android.application'/, "apply plugin: 'com.android.application'\napply plugin: 'com.google.firebase.crashlytics'");
+  fs.writeFileSync(gp, g); console.log('versionCode', n);
+}
+const rg = 'android/build.gradle';
+if (fs.existsSync(rg) && fs.existsSync('firebase/google-services.json')) {
+  let r = fs.readFileSync(rg, 'utf8');
+  if (!r.includes('firebase-crashlytics-gradle')) { r = r.replace(/classpath 'com.google.gms:google-services:[^']*'/, m => m + "\n        classpath 'com.google.firebase:firebase-crashlytics-gradle:3.0.2'"); fs.writeFileSync(rg, r); console.log('Crashlytics gradle plugin added'); }
+}
