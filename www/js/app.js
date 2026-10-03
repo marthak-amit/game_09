@@ -493,20 +493,31 @@ ON.bet = 0; ON.view = 'play';
 $('#btnFriends').onclick = async () => { Sfx.init(); Sfx.click(); ON.view = 'friends'; await showOnline(true); };
 ACT.friends = () => { ON.view = 'friends'; renderFriends(); };
 function renderFriends() {
-  const coins = Save.d.coins, max = Math.min(coins, 5000); ON.bet = Math.max(0, Math.min(ON.bet, max - (max % 50)));
-  const tcs = TIMES.slice(0, 3);
+  const coins = Save.d.coins, max = Math.min(coins, 5000) - (Math.min(coins, 5000) % 50); ON.bet = Math.max(0, Math.min(ON.bet, max));
+  const tcs = TIMES.slice(0, 3), chips = [0, 100, 250, 500, 1000], pct = max ? Math.round(ON.bet * 100 / max) : 0;
   sheet(onHead('👥 Play with a friend') + `<div class="sh-body">
-   <div class="sec">Create a room</div>
-   <div class="stake"><div class="sk-top"><span>Entry fee <small>per player</small></span><span class="mycoins">🪙 ${coins}</span></div>
-     <div class="stepper"><button data-act="betDn" ${ON.bet <= 0 ? 'disabled' : ''} aria-label="Less">−</button><div class="sv"><b>${ON.bet ? '🪙 ' + ON.bet : 'Free'}</b><small>${ON.bet ? 'Winner takes 🪙 ' + ON.bet * 2 : 'just for fun'}</small></div><button data-act="betUp" ${ON.bet + 50 > max ? 'disabled' : ''} aria-label="More">+</button></div>
-     <div class="quick-bets">${[0, 100, 250, 500].map(v => `<button class="${ON.bet === v ? 'on' : ''}" data-act="betSet" data-a="${v}" ${v > max ? 'disabled' : ''}>${v || 'Free'}</button>`).join('')}</div></div>
-   <div class="seg" style="margin-top:12px">${tcs.map(t => `<button class="${ON.tc === t.id ? 'on' : ''}" data-act="onTc" data-a="${t.id}">${t.name}</button>`).join('')}</div>
-   <button class="btn gold" style="width:100%;margin-top:12px" data-act="onCreate">🔑 Create room</button>
+   <div class="sec">Entry fee</div>
+   <div class="stake">
+     <div class="sk-top"><span>Each player pays</span><span class="mycoins">Your coins · 🪙 ${coins}</span></div>
+     <div class="stepper">
+       <button data-act="betDn" ${ON.bet <= 0 ? 'disabled' : ''} aria-label="Less">−</button>
+       <div class="sv"><span class="coinbig">🪙</span><b>${ON.bet ? ON.bet : 'Free'}</b><small>${ON.bet ? 'per player' : 'play for fun'}</small></div>
+       <button data-act="betUp" ${ON.bet + 50 > max ? 'disabled' : ''} aria-label="More">+</button>
+     </div>
+     <div class="meter"><i style="width:${pct}%"></i></div>
+     <div class="quick-bets">${chips.map(v => `<button class="${ON.bet === v ? 'on' : ''}" data-act="betSet" data-a="${v}" ${v > max ? 'disabled' : ''}>${v ? '🪙 ' + v : 'Free'}</button>`).join('')}<button data-act="betSet" data-a="${max}" ${max < 50 ? 'disabled' : ''} class="${ON.bet === max && max >= 50 ? 'on' : ''}">Max</button></div>
+     <div class="pot ${ON.bet ? '' : 'off'}"><span class="trophy">🏆</span><div><small>Winner takes</small><b>${ON.bet ? '🪙 ' + ON.bet * 2 : 'bragging rights'}</b></div></div>
+     ${coins < 50 ? '<button class="linkbtn" data-act="toShopCoins">Need coins? Get some in the shop →</button>' : ''}
+   </div>
+   <div class="sec">Time control</div>
+   <div class="seg">${tcs.map(t => `<button class="${ON.tc === t.id ? 'on' : ''}" data-act="onTc" data-a="${t.id}">${t.name}</button>`).join('')}</div>
+   <button class="btn gold" style="width:100%;margin-top:14px;font-size:17px;padding:15px" data-act="onCreate">🔑 Create room${ON.bet ? ' · 🪙 ' + ON.bet : ''}</button>
    <div class="or"><span>or join a friend</span></div>
    <div class="joinrow"><input class="code" data-code maxlength="6" placeholder="ENTER CODE" autocapitalize="characters" autocomplete="off" spellcheck="false"><button class="btn gold" data-act="onJoin">Join</button></div>
-   <p class="fine">Both players pay the entry fee when the game starts. Win = pot, draw = fee back, loss = fee lost.</p>
+   <p class="fine">Both players pay the entry fee when the game starts. Win = the pot, draw = fee back, loss = fee lost.</p>
   </div>`);
 }
+ACT.toShopCoins = () => { shopTab = 'coins'; showShop(); };
 ACT.betUp = () => { ON.bet = Math.min(Math.min(Save.d.coins, 5000), ON.bet + 50); renderFriends(); };
 ACT.betDn = () => { ON.bet = Math.max(0, ON.bet - 50); renderFriends(); };
 ACT.betSet = v => { ON.bet = Math.min(+v, Save.d.coins); renderFriends(); };
