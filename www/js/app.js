@@ -4,6 +4,7 @@ import { Sfx } from './audio.js';
 import { Save } from './storage.js';
 import { CFG, BOARDS, BGS, PIECE_COLORS, TIMES } from './config.js';
 import { Ads, IAP, Native, bus, nativeLifecycle } from './ads.js';
+import { getBackend, isConfigured, cleanCode, avatarFor, REEL_NAMES, REEL_AVATARS } from './online.js';
 
 const E = window.ChessEngine;
 const $ = (s, r) => (r || document).querySelector(s);
@@ -58,19 +59,20 @@ $('#qPieces').onclick = () => {
 };
 let toastT;
 function toast(msg, ms = 1900) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), ms); }
-function modal(html) { const c = $('#card'); c.className = 'card'; c.style.rotate = ''; c.innerHTML = html; c.dataset.dismiss = '0'; $('#modal').classList.remove('hidden'); G.paused = G.mode && !G.over ? true : G.paused; }
+function modal(html) { const c = $('#card'); c.className = 'card'; c.style.rotate = ''; c.innerHTML = html; c.dataset.dismiss = '0'; $('#modal').classList.remove('hidden'); G.paused = G.mode && G.mode !== 'online' && !G.over ? true : G.paused; }
 /** full-height sheet (shop / settings): keeps the scroll position when it re-renders after a tap */
 function sheet(html) {
   const c = $('#card'), was = c.classList.contains('sheet') && !$('#modal').classList.contains('hidden') ? ($('.sh-body', c) || {}).scrollTop || 0 : 0;
   modal(html); c.classList.add('sheet'); c.dataset.dismiss = '1'; const b = $('.sh-body', c); if (b) b.scrollTop = was;
 }
 function closeModal() { $('#modal').classList.add('hidden'); if (G.mode && !G.over) G.paused = false; }
+const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const modalOpen = () => !$('#modal').classList.contains('hidden');
 $('#card').addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b || b.disabled) return; Sfx.click();
   const fn = ACT[b.dataset.act]; if (fn) fn(b.dataset.a, b);
 });
-$('#card').addEventListener('change', e => { const k = e.target.dataset && e.target.dataset.cb; if (!k) return; Save.d.customBoard[k] = e.target.value; Save.d.board = 'custom'; Save.save(); applyStyle(); showSettings(); });
+$('#card').addEventListener('change', e => { if (e.target.dataset && e.target.dataset.nm !== undefined) return onlineRename(e.target.value); const k = e.target.dataset && e.target.dataset.cb; if (!k) return; Save.d.customBoard[k] = e.target.value; Save.d.board = 'custom'; Save.save(); applyStyle(); showSettings(); });
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal' && !G.over && ($('#card').dataset.dismiss === '1')) closeModal(); });
 
 /* ---------- puzzles (mate in N, unique solution; generated + verified by the engine) ---------- */
@@ -110,7 +112,7 @@ function askAI(payload) {
 
 /* ---------- screens ---------- */
 function showHome() {
-  closeModal(); clearInterval(G.tick); G.mode = null; G.id++; G.thinking = false;
+  onlineTeardown(); closeModal(); clearInterval(G.tick); G.mode = null; G.id++; G.thinking = false;
   $('#hud').classList.add('hidden'); $('#home').classList.remove('hidden');
   const d = Save.d; $('#homeCoins b').textContent = d.coins; $('#homeRating b').textContent = d.rating;
   $('#btnContinue').classList.toggle('hidden', !d.game);
@@ -139,11 +141,11 @@ function newGame(o, resume) {
     G.lastMove = G.moves.length ? [G.moves[G.moves.length - 1] & 63, (G.moves[G.moves.length - 1] >> 6) & 63] : null;
   }
   G.legal = G.board.legal();
-  scene.setMenuSpin(false); scene.loadPosition(G.board.b); viewIdx = G.mode === 'ai' && G.human ? 1 : 0;
+  scene.setMenuSpin(false); scene.loadPosition(G.board.b); viewIdx = (G.mode === 'ai' || G.mode === 'online') && G.human ? 1 : 0;
   if (G.lastMove) scene.markLast(...G.lastMove);
   const st = G.board.status(); if (st.check) scene.markCheck(G.board.kingSq[G.board.turn]);
   $('#home').classList.add('hidden'); $('#hud').classList.remove('hidden');
-  const view = G.mode === 'ai' ? (G.human ? 'black' : 'white') : (G.board.turn ? 'black' : 'white');
+  const view = (G.mode === 'ai' || G.mode === 'online') ? (G.human ? 'black' : 'white') : (G.board.turn ? 'black' : 'white');
   scene.resetCamera(G.mode === 'pvp' && !Save.d.autoRotate ? 'white' : view, !!resume ? false : false);
   setupBars(); updateHud(); startClock(); saveGame();
   if (G.mode === 'ai' && G.board.turn !== G.human) aiMove();
@@ -170,6 +172,12 @@ function setupBars() {
     $('#nameBot').textContent = `You · ${G.human ? 'Black' : 'White'} · Mate in ${pz.n}`; paintAv('#avBot', G.human, G.human ? '♚\uFE0E' : '♔\uFE0E');
     $('#btnHint').classList.remove('hidden'); $('#btnUndo').classList.add('hidden'); return;
   }
+  if (G.mode === 'online') {
+    const o = ON.opp || { name: 'Opponent' }, me = G.human, tc = me ^ 1; G.bottomColor = me;
+    $('#nameBot').textContent = `${ON.user ? ON.user.name : 'You'} · ${me ? 'Black' : 'White'}`; $('#nameTop').textContent = `${o.name} · ${tc ? 'Black' : 'White'}`;
+    paintAv('#avBot', me, me ? '♚\uFE0E' : '♔\uFE0E'); paintAv('#avTop', tc, avatarFor(o.uid || o.name));
+    $('#btnUndo').classList.add('hidden'); $('#btnHint').classList.add('hidden'); return;
+  }
   $('#btnUndo').classList.remove('hidden');
   const ai = G.mode === 'ai', L = E.LEVELS[G.level];
   const bottomColor = ai ? G.human : 0, topColor = bottomColor ^ 1, cn = c => c ? 'Black' : 'White';
@@ -195,6 +203,7 @@ function updateHud() {
   { const t = b.turn, wh = t === 0, chk = !G.over && b.inCheck(), el = $('#turn'); let txt;
     if (G.over) txt = 'Game over';
     else if (G.mode === 'puzzle') txt = `${wh ? 'White' : 'Black'} to play · Mate in ${G.puz.n - G.puz.step}`;
+    else if (G.mode === 'online') txt = t === G.human ? `Your move · ${wh ? 'White' : 'Black'}` : `${(ON.opp && ON.opp.name) || 'Opponent'}'s move · ${wh ? 'White' : 'Black'}`;
     else if (G.mode === 'ai') txt = t === G.human ? `Your move · ${wh ? 'White' : 'Black'}` : `Computer's move · ${wh ? 'White' : 'Black'}`;
     else txt = `${wh ? 'White' : 'Black'}'s move`;
     el.className = 'turn ' + (wh ? 'w' : 'b') + (chk ? ' chk' : ''); el.textContent = (chk ? '⚠ CHECK · ' : '') + txt; }
@@ -212,7 +221,7 @@ function startClock() {
 }
 function updateClocksOnly() { const bot = G.bottomColor, top = bot ^ 1; $('#clockBot').textContent = fmt(G.clocks[bot]); $('#clockTop').textContent = fmt(G.clocks[top]); $('#clockBot').classList.toggle('low', G.clocks[bot] < 20); $('#clockTop').classList.toggle('low', G.clocks[top] < 20); }
 function saveGame() {
-  if (G.mode === 'puzzle') return;
+  if (G.mode === 'puzzle' || G.mode === 'online') return;
   if (G.over || !G.mode) { Save.d.game = null; } else Save.d.game = { mode: G.mode, level: G.level, human: G.human, time: G.tc.id, moves: G.moves.slice(), clocks: G.clocks.slice(), hints: G.hints, undos: G.undos };
   Save.save();
 }
@@ -221,7 +230,7 @@ function saveGame() {
 scene.onPick = sq => {
   Sfx.init(); Sfx.music();
   if (!G.mode || G.over || G.busy || G.thinking || G.paused || sq < 0) return;
-  if (G.mode === 'ai' && G.board.turn !== G.human) return;
+  if ((G.mode === 'ai' || G.mode === 'online') && G.board.turn !== G.human) return;
   const b = G.board, p = b.b[sq];
   if (G.sel >= 0 && G.targets.some(t => t.sq === sq)) { tryMove(G.sel, sq); return; }
   if (p && (p >> 3) === b.turn) selectSq(sq); else if (G.sel >= 0) { G.sel = -1; G.targets = []; scene.deselect(); hidePieceInfo(); }
@@ -254,14 +263,15 @@ ACT.promoCancel = () => { G._promo = null; closeModal(); toast('Move cancelled �
 ACT.promo = t => { if (!G._promo) return; const code = 'pnbrqk'.indexOf(t) + 1; const m = G._promo.find(x => ((x >> 12) & 7) === code); closeModal(); G._promo = null; if (m) { if (G.mode === 'puzzle' && !puzzleAccept(m)) return puzzleWrong(); commit(m); } };
 
 /* ---------- making moves ---------- */
-async function commit(m) {
-  const b = G.board, gid = G.id; G.busy = true; G.sel = -1; G.targets = []; scene.deselect(false); hidePieceInfo();
+async function commit(m, remote) {
+  const b = G.board, gid = G.id; const uciS = G.mode === 'online' && !remote ? b.uci(m) : null; G.busy = true; G.sel = -1; G.targets = []; scene.deselect(false); hidePieceInfo();
   const from = m & 63, to = (m >> 6) & 63, flag = (m >> 16) & 15, promo = (m >> 12) & 7, us = b.turn;
   const san = b.san(m, G.legal); let capture = null, castle = null;
   if (flag & E.F_CAP) capture = { sq: (flag & E.F_EP) ? (us ? to + 8 : to - 8) : to };
   if (flag & E.F_CASTLE) castle = { from: to > from ? from + 3 : from - 4, to: to > from ? from + 1 : from - 1 };
   trackCapture(b, m); b.make(m); G.moves.push(m); G.sans.push(san); G.lastMove = [from, to];
   if (G.tc.inc) G.clocks[us] += G.tc.inc;
+  if (uciS) sendOnlineMove(uciS, G.moves.length - 1);
   updateHud();
   await scene.animateMove({ from, to, capture, castle, promo: promo ? 'pnbrqk'[promo - 1] : null });
   if (gid !== G.id) return;
@@ -272,6 +282,7 @@ async function commit(m) {
   if (st.over) { await endGame(st); return; }
   if (st.check) { Sfx.check(); Sfx.buzz(40); toast('Check!', 1300); }
   saveGame(); updateHud();
+  if (G.mode === 'online') pumpOnline();
   if (G.mode === 'pvp' && Save.d.autoRotate) scene.resetCamera(b.turn ? 'black' : 'white');
   if (G.mode === 'ai' && b.turn !== G.human) aiMove();
 }
@@ -326,6 +337,7 @@ $('#btnView').onclick = () => { Sfx.click(); cycleView(); };
 $('#btnMenu').onclick = () => { Sfx.click(); showPause(); };
 function showPause() {
   if (!G.mode) return;
+  if (G.mode === 'online') { modal(`<h2>Online game</h2><p>vs ${esc((ON.opp && ON.opp.name) || 'Opponent')} · room ${esc(ON.code || '')}</p><div class="col"><button class="btn gold" data-act="close">Resume</button><button class="btn dark" data-act="moveList">Move list</button><button class="btn dark" data-act="settings">Settings</button>${G.over ? '<button class="btn ghost" data-act="home">Home</button>' : '<button class="btn dark" data-act="resign">Resign &amp; leave</button>'}</div>`); $('#card').dataset.dismiss = '1'; return; }
   modal(`<h2>Paused</h2><div class="col"><button class="btn gold" data-act="close">Resume</button><button class="btn dark" data-act="moveList">Move list</button><button class="btn dark" data-act="settings">Settings</button>
     ${G.mode === 'puzzle' ? '<button class="btn dark" data-act="restartPuzzle">Restart puzzle</button>' : G.over ? '' : '<button class="btn dark" data-act="resign">Resign</button>'}<button class="btn ghost" data-act="home">${G.mode === 'puzzle' ? 'Exit to menu' : 'Save &amp; exit to menu'}</button></div>`);
   $('#card').dataset.dismiss = '1';
@@ -336,16 +348,18 @@ ACT.moveList = () => {
 };
 ACT.home = () => { saveGame(); showHome(); };
 ACT.resign = () => modal(`<h2>Resign?</h2><p>This counts as a loss.</p><div class="col"><button class="btn dark" data-act="resignYes">Yes, resign</button><button class="btn gold" data-act="close">Keep playing</button></div>`);
-ACT.resignYes = () => { closeModal(); const loser = G.mode === 'ai' ? G.human : G.board.turn; endGame({ result: loser ? '1-0' : '0-1', reason: 'resignation' }); };
+ACT.resignYes = () => { closeModal(); const loser = (G.mode === 'ai' || G.mode === 'online') ? G.human : G.board.turn; endGame({ result: loser ? '1-0' : '0-1', reason: 'resignation' }); };
 
 /* ---------- game over ---------- */
 async function endGame(st) {
   if (G.over) return; G.over = true; G.busy = false; G.thinking = false; clearInterval(G.tick); updateHud();
+  const online = G.mode === 'online'; if (online && !st.remote && ON.be) ON.be.finish(ON.code, st.result, st.reason).catch(() => {});
   const ai = G.mode === 'ai', white = st.result === '1-0', black = st.result === '0-1';
   const outcome = st.result === '1/2-1/2' ? 'draw' : ((white && G.human === 0) || (black && G.human === 1)) ? (ai ? 'win' : 'win') : 'loss';
   let coins = 0, dr = 0, title = '', sub = '';
   const reason = st.reason[0].toUpperCase() + st.reason.slice(1);
-  if (!ai) { title = st.result === '1/2-1/2' ? 'Draw' : (white ? 'White wins!' : 'Black wins!'); sub = reason; Sfx[st.result === '1/2-1/2' ? 'draw' : 'win'](); }
+  if (online) { title = outcome === 'win' ? '🏆 You win!' : outcome === 'draw' ? 'Draw' : 'You lose'; sub = `${reason} · vs ${(ON.opp && ON.opp.name) || 'Opponent'}`; Sfx[outcome === 'win' ? 'win' : outcome === 'draw' ? 'draw' : 'lose'](); }
+  else if (!ai) { title = st.result === '1/2-1/2' ? 'Draw' : (white ? 'White wins!' : 'Black wins!'); sub = reason; Sfx[st.result === '1/2-1/2' ? 'draw' : 'win'](); }
   else {
     const d = Save.d, L = E.LEVELS[G.level], score = outcome === 'win' ? 1 : outcome === 'draw' ? 0.5 : 0, exp = 1 / (1 + Math.pow(10, (L.elo - d.rating) / 400));
     dr = Math.round(32 * (score - exp)); d.rating = Math.max(100, d.rating + dr); d.stats.games++;
@@ -353,10 +367,11 @@ async function endGame(st) {
     d.coins += coins; d.gamesPlayed++;
     title = outcome === 'win' ? 'Victory!' : outcome === 'draw' ? 'Draw' : 'Defeat'; sub = reason; Sfx[outcome === 'win' ? 'win' : outcome === 'draw' ? 'draw' : 'lose']();
   }
-  Save.d.game = null; Save.save();
+  if (!online) Save.d.game = null; Save.save();
   if (st.reason === 'checkmate') { const lk = G.board.kingSq[G.board.turn]; scene.kingFall(lk); }
   await sleep(st.reason === 'checkmate' ? 1500 : 700);
   G.lastOutcome = { coins, ai };
+  if (online) { modal(`<h2>${title}</h2><p>${esc(sub)}</p><div class="col"><button class="btn gold" data-act="onAgain">🌐 Play online again</button><button class="btn dark" data-act="viewBoard">View board</button><button class="btn ghost" data-act="home">Home</button></div>`); $('#card').dataset.dismiss = '0'; return; }
   modal(`<h2>${title}</h2><p>${sub}${ai ? ` · vs ${E.LEVELS[G.level].name}` : ''}</p>
     ${ai ? `<div class="stat"><span>Rating</span><span>${Save.d.rating} (${dr >= 0 ? '+' : ''}${dr})</span></div><div class="stat"><span>Coins earned</span><span>+${coins} 🪙</span></div>` : ''}
     <div class="col"><button class="btn gold" data-act="rematch">Rematch</button>
@@ -397,6 +412,139 @@ ACT.start = async () => {
 $('#btnAI').onclick = () => { Sfx.init(); Sfx.click(); showSetup('ai'); };
 $('#btnPvP').onclick = () => { Sfx.init(); Sfx.click(); showSetup('pvp'); };
 $('#btnContinue').onclick = () => { Sfx.init(); Sfx.click(); const g = Save.d.game; if (g) newGame({ mode: g.mode, level: g.level, human: g.human, time: g.time }, g); };
+
+
+/* ---------- online play (Firebase or the local demo backend – see online.js) ---------- */
+const ON = { be: null, user: null, code: null, unsub: null, tc: 'none', opp: null, room: null, searching: false, reelT: null };
+const avHtml = u => u && u.photo ? `<img src="${esc(u.photo)}" alt="" referrerpolicy="no-referrer">` : avatarFor(u ? u.uid || u.name : '?');
+function onlineTeardown() {
+  if (ON.unsub) { ON.unsub(); ON.unsub = null; } if (ON.be && ON.searching) ON.be.cancelQuick(); ON.searching = false; clearTimeout(ON.reelT);
+  if (ON.be && ON.code && !(G.mode === 'online' && ON.room && ON.room.status !== 'waiting')) ON.be.leaveRoom(ON.code);
+  if (G.mode !== 'online') { ON.code = null; ON.room = null; }
+}
+async function onlineInit() {
+  if (!ON.be) ON.be = await getBackend(); if (!ON.be) return false;
+  if (!ON.user) ON.user = await ON.be.init(); return true;
+}
+const onHead = t => `<div class="sh-head"><h2>${t}</h2><button class="x" data-act="onClose" aria-label="Close">✕</button></div>`;
+async function showOnline() {
+  sheet(onHead('🌐 Play Online') + '<div class="sh-body"><p class="fine">Connecting…</p></div>');
+  let ok = false;
+  try { ok = await onlineInit(); } catch (e) { console.error(e); sheet(onHead('🌐 Play Online') + `<div class="sh-body"><div class="banner done" style="background:rgba(224,52,79,.18)"><div class="bi">⚠</div><div class="grow"><b>Can't connect</b><small>Check your internet connection and try again.<br>${esc(e.message || e)}</small></div></div></div>`); return; }
+  if (!ok) { sheet(onHead('🌐 Play Online') + `<div class="sh-body"><div class="banner gold"><div class="bi">🛠</div><div class="grow"><b>Coming soon</b><small>Online play isn't switched on in this build yet. Meanwhile try Play vs Computer or Pass &amp; Play.</small></div></div></div>`); return; }
+  renderOnline();
+}
+function renderOnline() {
+  const u = ON.user, demo = ON.be.name === 'demo', prov = { guest: 'Guest account', google: 'Signed in with Google', facebook: 'Signed in with Facebook' }[u.provider] || 'Signed in';
+  const tcs = TIMES.slice(0, 3);
+  sheet(onHead('🌐 Play Online') + `<div class="sh-body">
+   <div class="prof"><div class="pav">${avHtml(u)}</div><div class="grow"><input class="nm" data-nm value="${esc(u.name)}" maxlength="16" aria-label="Your name"><small>${prov} · ♔ ${u.rating || 800}</small></div></div>
+   ${demo ? '<div class="banner gold"><div class="bi">🧪</div><div class="grow"><b>Demo mode</b><small>No Firebase set up yet – open this game in two browser tabs to try it.</small></div></div>' : ''}
+   <div class="sec">Time control</div><div class="seg">${tcs.map(t => `<button class="${ON.tc === t.id ? 'on' : ''}" data-act="onTc" data-a="${t.id}">${t.name}</button>`).join('')}</div>
+   <div class="sec">Play</div>
+   <button class="bigact" data-act="onQuick"><i>⚡</i><div><b>Quick match</b><small>Play a random online opponent</small></div></button>
+   <button class="bigact" data-act="onCreate"><i>🔑</i><div><b>Create private game</b><small>Get a code and share it with a friend</small></div></button>
+   <div class="joinrow"><input class="code" data-code maxlength="6" placeholder="ENTER CODE" autocapitalize="characters" autocomplete="off" spellcheck="false"><button class="btn gold" data-act="onJoin">Join</button></div>
+   <div class="sec">Account</div>
+   ${u.guest ? `<p class="fine" style="margin:0 0 10px;text-align:left">You're playing as a guest. Sign in to keep your name and rating on any device.</p>
+     <button class="authbtn g" data-act="onSign" data-a="google"><i>G</i>Continue with Google</button><button class="authbtn f" data-act="onSign" data-a="facebook"><i>f</i>Continue with Facebook</button>`
+   : `<button class="btn dark" style="width:100%" data-act="onSignOut">Sign out</button>`}
+  </div>`);
+}
+ACT.onClose = () => { onlineTeardown(); closeModal(); };
+ACT.onTc = id => { ON.tc = id; renderOnline(); };
+ACT.onSign = async p => { try { toast('Signing in…', 1500); ON.user = await ON.be.signIn(p); toast('Signed in as ' + ON.user.name); } catch (e) { console.error(e); if (!/cancel|closed|popup/i.test(String(e.code || e.message))) toast('Sign-in failed: ' + (e.code || e.message), 3500); } renderOnline(); };
+ACT.onSignOut = async () => { ON.user = await ON.be.signOut(); renderOnline(); };
+async function onlineRename(v) { v = v.trim().slice(0, 16); if (!v) return renderOnline(); ON.user.name = v; try { await ON.be.setName(v); toast('Name saved'); } catch (e) { toast('Could not save name'); } }
+$('#btnOnline').onclick = () => { Sfx.init(); Sfx.click(); showOnline(); };
+$('#card').addEventListener('input', e => { if (e.target.dataset && e.target.dataset.code !== undefined) { const v = cleanCode(e.target.value); if (v !== e.target.value) e.target.value = v; } });
+
+/* private game: create + share a code */
+ACT.onCreate = async () => {
+  try { const code = await ON.be.createRoom({ tc: ON.tc }); ON.code = code; renderWaiting(code);
+    ON.unsub = ON.be.watchRoom(code, r => { if (r && r.status === 'playing' && r.guest) { if (ON.unsub) ON.unsub(); ON.unsub = null; beginOnline(r); } }); }
+  catch (e) { console.error(e); toast('Could not create game: ' + (e.message || e), 3200); }
+};
+const shareText = code => `Let's play chess! Join my Royal Chess 3D game with code ${code}`;
+const isNative = () => !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+function renderWaiting(code) {
+  const spaced = code.split('').join(' ');
+  sheet(onHead('🔑 Private game') + `<div class="sh-body" style="text-align:center">
+   <p class="fine" style="margin-top:6px">Share this code with your friend. The game starts as soon as they join.</p>
+   <div class="codebox" id="codeBox">${spaced}</div>
+   <div class="sharerow">${isNative() ? '' : `<button class="authbtn w" data-act="onShare" data-a="wa"><i>✆</i>WhatsApp</button>`}<button class="authbtn s" data-act="onShare" data-a="sys"><i>⤴</i>Share</button><button class="authbtn c" data-act="onShare" data-a="copy"><i>⧉</i>Copy</button></div>
+   <div class="waiting"><span></span><span></span><span></span> Waiting for your friend…</div>
+   <p class="fine">Time: ${(TIMES.find(t => t.id === ON.tc) || TIMES[0]).name}</p>
+   <button class="btn ghost" style="width:100%;margin-top:10px" data-act="onClose">Cancel</button></div>`);
+}
+ACT.onShare = async k => {
+  const code = ON.code, text = shareText(code);
+  if (k === 'copy') { try { await navigator.clipboard.writeText(code); toast('Code copied: ' + code); } catch (e) { toast('Code: ' + code, 3000); } return; }
+  if (k === 'wa') { window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank'); return; }
+  try { const Sh = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Share; if (Sh) await Sh.share({ text, dialogTitle: 'Invite a friend' }); else if (navigator.share) await navigator.share({ text }); else { await navigator.clipboard.writeText(text); toast('Invite copied'); } } catch (e) { /* cancelled */ }
+};
+ACT.onJoin = async () => {
+  const code = cleanCode(($('input[data-code]') || {}).value); if (code.length !== 6) return toast('Enter the 6-character code');
+  try { const r = await ON.be.joinRoom(code); ON.code = code; beginOnline(r); }
+  catch (e) { toast({ notfound: 'No game with that code', full: 'That game already has two players', over: 'That game has finished' }[e.message] || 'Could not join: ' + (e.code || e.message), 3000); }
+};
+
+/* quick match: spinning reel of player profiles that lands on your real opponent */
+const reelCard = (n, a, cls = '') => `<div class="rc ${cls}"><i>${a}</i><b>${esc(n)}</b></div>`;
+const randReel = n => Array.from({ length: n }, () => reelCard(REEL_NAMES[Math.random() * REEL_NAMES.length | 0], REEL_AVATARS[Math.random() * REEL_AVATARS.length | 0])).join('');
+ACT.onQuick = () => {
+  ON.searching = true; let sec = 0;
+  const base = randReel(14);
+  sheet(onHead('⚡ Quick match') + `<div class="sh-body" style="text-align:center">
+   <p class="fine" style="margin-top:6px" id="srchTxt">Looking for an opponent…</p>
+   <div class="reel"><div class="strip spin" id="strip">${base}${base}</div><div class="mark"></div></div>
+   <div class="vs hidden" id="vsRow"></div>
+   <div id="srchBtns"><div class="waiting"><span></span><span></span><span></span> <em id="srchSec">0s</em></div>
+   <button class="btn ghost" style="width:100%;margin-top:10px" data-act="onCancelQuick">Cancel</button></div></div>`);
+  const t0 = Date.now(); const tick = () => { if (!ON.searching) return; sec = Math.floor((Date.now() - t0) / 1000); const e = $('#srchSec'); if (e) e.textContent = sec + 's'; if (sec === 20 && $('#srchTxt')) { $('#srchTxt').textContent = 'No one yet… players join all the time. Keep waiting or play the computer.'; $('#srchBtns').insertAdjacentHTML('afterbegin', '<button class="btn dark" style="width:100%;margin-bottom:8px" data-act="onToAI">🤖 Play vs Computer instead</button>'); } ON.reelT = setTimeout(tick, 500); };
+  tick();
+  ON.be.quickMatch({ tc: ON.tc }).then(async ({ code }) => {
+    if (!ON.searching) return; ON.searching = false; clearTimeout(ON.reelT);
+    const room = await ON.be.joinRoom(code); const opp = room.host.uid === ON.user.uid ? room.guest : room.host;
+    await landReel(opp, room);
+  }).catch(e => { if (e.message !== 'cancelled') { console.error(e); toast('Matchmaking failed: ' + (e.message || e), 3200); renderOnline(); } });
+};
+async function landReel(opp, room) {
+  const strip = $('#strip'); if (!strip) return beginOnline(room);
+  const pitch = 106, idx = 26, n = 30; let html = '';
+  for (let i = 0; i < n; i++) html += i === idx ? reelCard(opp.name, avHtml(opp), 'real') : randReel(1);
+  strip.className = 'strip'; strip.style.transition = 'none'; strip.style.transform = 'translateX(0)'; strip.innerHTML = html; void strip.offsetWidth;
+  const view = strip.parentElement.clientWidth, target = -(idx * pitch - (view / 2 - 48));
+  $('#srchTxt').textContent = 'Opponent found!'; $('#srchBtns').classList.add('hidden');
+  strip.style.transition = 'transform 2.8s cubic-bezier(.12,.6,.12,1)'; strip.style.transform = `translateX(${target}px)`;
+  Sfx.select(); await sleep(3000);
+  const row = $('#vsRow'); if (row) { row.classList.remove('hidden'); row.innerHTML = `<div class="vsc"><div class="pav">${avHtml(ON.user)}</div><b>${esc(ON.user.name)}</b></div><div class="vsx">VS</div><div class="vsc"><div class="pav">${avHtml(opp)}</div><b>${esc(opp.name)}</b></div>`; Sfx.win(); }
+  await sleep(1400); beginOnline(room);
+}
+ACT.onCancelQuick = () => { onlineTeardown(); renderOnline(); };
+ACT.onToAI = () => { onlineTeardown(); closeModal(); showSetup('ai'); };
+ACT.onAgain = () => { showHome(); showOnline(); };
+
+/* playing an online game */
+function beginOnline(room) {
+  ON.searching = false; clearTimeout(ON.reelT); if (ON.unsub) { ON.unsub(); ON.unsub = null; }
+  const me = ON.user.uid, host = room.host.uid === me, color = host ? room.hostColor : room.hostColor ^ 1; ON.opp = host ? room.guest : room.host; ON.code = room.code; ON.room = room;
+  const tmp = new E.Board(), moves = [];
+  for (const u of room.moves) { const m = tmp.parseUci(u, tmp.legal()); if (!m) break; tmp.make(m); moves.push(m); }
+  const tc = TIMES.find(t => t.id === room.tc) || TIMES[0];
+  newGame({ mode: 'online', human: color, time: tc.id }, moves.length ? { moves, hints: 0, undos: 0, clocks: [tc.base, tc.base] } : null);
+  toast(`You play ${color ? 'Black' : 'White'} vs ${ON.opp.name}`, 2600);
+  ON.unsub = ON.be.watchRoom(room.code, r => { if (!r || G.mode !== 'online' || r.code !== ON.code) return; ON.room = r; pumpOnline(); });
+}
+async function sendOnlineMove(uci, len) {
+  for (let i = 0; i < 5; i++) { try { await ON.be.pushMove(ON.code, uci, len); return; } catch (e) { if (e.message === 'stale') return; await sleep(600 * (i + 1)); } }
+  toast('Connection problem – your move may not have been sent', 3500);
+}
+function pumpOnline() {
+  const r = ON.room; if (!r || G.mode !== 'online' || G.over || G.busy) return;
+  if (r.moves.length > G.moves.length) { const m = G.board.parseUci(r.moves[G.moves.length], G.legal); if (m) commit(m, true); else toast('Received an invalid move'); return; }
+  if (r.result) endGame({ result: r.result.result, reason: r.result.reason, remote: true });
+}
 
 /* ---------- daily / shop / settings / stats / help ---------- */
 function showDaily() {
@@ -557,7 +705,7 @@ function onBack(exit) {
   if (G.mode) { showPause(); return; }
   exit();
 }
-function pauseNow() { Sfx.music(false); if (G.mode && !G.over && !modalOpen()) showPause(); }
+function pauseNow() { Sfx.music(false); if (G.mode && G.mode !== 'online' && !G.over && !modalOpen()) showPause(); }
 nativeLifecycle(pauseNow, onBack);
 document.addEventListener('visibilitychange', () => { if (document.hidden) pauseNow(); else Sfx.music(); });
 if ('serviceWorker' in navigator && !Native && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});

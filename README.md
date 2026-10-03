@@ -45,6 +45,9 @@ Wooden Table · Royal Palace (marble tiles, candle glow, floating gold dust) · 
 > ⚠️ The ₹10 lakh/month goal depends on daily players × revenue per player (hyper-casual/board games in India are
 > roughly ₹1–4 per daily user), i.e. ~10k–30k+ daily users. That needs marketing and live-ops on top of the game.
 
+## Online play
+Play a friend with a **private 6-letter code** (share it on WhatsApp or anywhere), or tap **Quick match** – a reel of player profiles spins and lands on your real opponent. Moves are realtime (Firebase). Guest accounts are created automatically; sign in with **Google** or **Facebook** to keep your profile. See [ONLINE_SETUP.md](ONLINE_SETUP.md) for the Firebase setup and what's needed to switch it on.
+
 ## Performance
 Startup and settings changes never block the UI: textures are painted in small slices and cached, piece sets are built once per style, shaders are compiled in parallel (`compileAsync`) behind the loading screen, and *Auto* graphics starts at Medium and steps down to Low if frames are slow. Shop and Settings are scrolling sheets that keep their position.
 

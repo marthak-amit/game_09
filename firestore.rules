@@ -1,0 +1,49 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+
+    // public profile: anyone signed in can read, only the owner writes
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && request.auth.uid == uid;
+    }
+
+    // quick-match queue: owner creates/deletes their entry; another player may only claim it (set `room` once)
+    match /queue/{uid} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.auth.uid == uid && request.resource.data.uid == uid;
+      allow delete: if signedIn() && request.auth.uid == uid;
+      allow update: if signedIn() && (
+        request.auth.uid == uid ||
+        (resource.data.room == null && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['room'])));
+    }
+
+    // game rooms: fetched by their secret 6-letter code (no listing)
+    match /rooms/{code} {
+      function whiteUid(r) { return r.hostColor == 0 ? r.host.uid : r.guest.uid; }
+      function blackUid(r) { return r.hostColor == 0 ? r.guest.uid : r.host.uid; }
+      allow get: if signedIn();
+      allow list: if false;
+      // host opens a waiting room, or a quick-match seeker creates a room with themselves as guest
+      allow create: if signedIn() && request.resource.data.moves.size() == 0 &&
+        ((request.resource.data.status == 'waiting' && request.resource.data.host.uid == request.auth.uid && request.resource.data.guest == null) ||
+         (request.resource.data.status == 'playing' && request.resource.data.guest.uid == request.auth.uid));
+      // the host may cancel a room that is still waiting
+      allow delete: if signedIn() && resource.data.host.uid == request.auth.uid && resource.data.status == 'waiting';
+      allow update: if signedIn() && (
+        // a second player joins an open room
+        (resource.data.guest == null && resource.data.status == 'waiting' && request.resource.data.guest.uid == request.auth.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['guest', 'status', 'players'])) ||
+        // a move: only the player whose turn it is, exactly one move appended
+        (resource.data.status == 'playing' && resource.data.result == null &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['moves', 't']) &&
+          request.resource.data.moves.size() == resource.data.moves.size() + 1 &&
+          request.auth.uid == (resource.data.moves.size() % 2 == 0 ? whiteUid(resource.data) : blackUid(resource.data))) ||
+        // result (resign / checkmate / timeout) written by either player
+        (resource.data.status == 'playing' && resource.data.result == null &&
+          (request.auth.uid == resource.data.host.uid || request.auth.uid == resource.data.guest.uid) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['result', 'status'])));
+    }
+  }
+}

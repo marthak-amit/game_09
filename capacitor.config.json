@@ -3,5 +3,16 @@
   "appName": "Royal Chess 3D",
   "webDir": "www",
   "backgroundColor": "#120c08",
-  "android": { "allowMixedContent": false }
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "FirebaseAuthentication": {
+      "skipNativeAuth": true,
+      "providers": [
+        "google.com",
+        "facebook.com"
+      ]
+    }
+  }
 }

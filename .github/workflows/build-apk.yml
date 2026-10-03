@@ -15,8 +15,21 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 21 }
       - run: npm ci
+      # Online play: optional secrets (see ONLINE_SETUP.md). Without them the APK still builds; online play shows "coming soon".
+      - name: Firebase config (optional)
+        env:
+          FIREBASE_CONFIG_JSON: ${{ secrets.FIREBASE_CONFIG_JSON }}
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$FIREBASE_CONFIG_JSON" ]; then echo "export const FIREBASE_CONFIG = $FIREBASE_CONFIG_JSON;" > www/js/firebase-config.js; echo "Firebase web config written"; fi
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then mkdir -p /tmp/gs && echo "$GOOGLE_SERVICES_JSON" > /tmp/gs/google-services.json; echo "google-services.json staged"; fi
       - run: npm test
       - run: npm run android:add
+        env:
+          FACEBOOK_APP_ID: ${{ secrets.FACEBOOK_APP_ID }}
+          FACEBOOK_CLIENT_TOKEN: ${{ secrets.FACEBOOK_CLIENT_TOKEN }}
+      - name: Install google-services.json
+        run: if [ -f /tmp/gs/google-services.json ]; then cp /tmp/gs/google-services.json android/app/google-services.json; fi
       - run: npx cap sync android
       - run: cd android && ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
@@ -25,9 +38,10 @@ jobs:
       - name: Publish APK to the apk branch
         run: |
           mkdir -p /tmp/apk && cp android/app/build/outputs/apk/debug/app-debug.apk /tmp/apk/RoyalChess3D-debug.apk
-          cd /tmp/apk && git init -q && git checkout -q -b apk
+          BR=apk; case "${GITHUB_REF_NAME}" in *online*) BR=apk-online;; esac
+          cd /tmp/apk && git init -q && git checkout -q -b $BR
           git config user.name "github-actions" && git config user.email "actions@users.noreply.github.com"
           echo "Debug build of commit ${GITHUB_SHA}" > README.txt
           git add . && git commit -q -m "APK build ${GITHUB_SHA}"
           git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
-          git push -f origin apk
+          git push -f origin $BR

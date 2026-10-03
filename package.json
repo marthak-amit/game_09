@@ -2,25 +2,30 @@
   "name": "royal-chess-3d",
   "version": "1.0.0",
   "private": true,
-  "description": "Royal Chess 3D – realistic 3D chess with a horse, elephant and camel that move like the real animals (HTML5 + Three.js + Capacitor)",
+  "description": "Royal Chess 3D \u2013 realistic 3D chess with a horse, elephant and camel that move like the real animals (HTML5 + Three.js + Capacitor)",
   "scripts": {
     "serve": "npx http-server www -p 8080 -c-1",
     "test": "node scripts/test-engine.js && node scripts/test-puzzles.js",
     "test:engine": "node scripts/test-engine.js",
-    "android:add": "npx cap add android && npx capacitor-assets generate --android && node scripts/patch-android.js",
+    "android:add": "npm run build:online && npx cap add android && npx capacitor-assets generate --android && node scripts/patch-android.js",
     "android:sync": "npx cap sync android",
-    "android:apk": "npm run android:sync && cd android && ./gradlew assembleDebug"
+    "android:apk": "npm run android:sync && cd android && ./gradlew assembleDebug",
+    "build:online": "esbuild src/online-firebase.js --bundle --format=esm --minify --target=es2020 --outfile=www/vendor/online-firebase.js"
   },
   "dependencies": {
     "@capacitor-community/admob": "^7.0.0",
+    "@capacitor-firebase/authentication": "^7.5.0",
     "@capacitor/android": "^7.0.0",
     "@capacitor/app": "^7.0.0",
     "@capacitor/core": "^7.0.0",
     "@capacitor/haptics": "^7.0.0",
+    "@capacitor/share": "^7.0.4",
+    "firebase": "^11.10.0",
     "three": "0.170.0"
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
-    "@capacitor/cli": "^7.0.0"
+    "@capacitor/cli": "^7.0.0",
+    "esbuild": "^0.28.2"
   }
 }
