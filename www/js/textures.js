@@ -55,31 +55,37 @@ function woodPatch(ctx, x, y, w, h, base, seed, vertical) {
   ctx.restore();
 }
 
-function paintSquares(theme, seed) {
+const yieldUI = () => new Promise(r => setTimeout(r, 0));   // let the browser draw / respond between slices of work
+
+async function paintSquares(theme, seed) {
   const S = 1024, sq = S / 8, c = canvas(S, S), ctx = c.getContext('2d');
   const L = hex(theme.light), D = hex(theme.dark);
   if (theme.type === 'wood') {
-    for (let row = 0; row < 8; row++) for (let col = 0; col < 8; col++) {
-      const dark = ((col + (7 - row)) & 1) === 0; woodPatch(ctx, col * sq, row * sq, sq, sq, dark ? theme.dark : theme.light, seed + row * 8 + col, (row + col) % 3 === 0);
+    for (let row = 0; row < 8; row++) {
+      for (let col = 0; col < 8; col++) { const dark = ((col + (7 - row)) & 1) === 0; woodPatch(ctx, col * sq, row * sq, sq, sq, dark ? theme.dark : theme.light, seed + row * 8 + col, (row + col) % 3 === 0); }
+      await yieldUI();
     }
   } else {
-    const img = ctx.createImageData(S, S), d = img.data, VL = hex(theme.veinL || 0), VD = hex(theme.veinD || 0);
-    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
-      const col = x >> 7, row = y >> 7, dark = ((col + (7 - row)) & 1) === 0, base = dark ? D : L; let r, g, b;
-      if (theme.type === 'marble') {
-        const n = fbm(x * 0.006, y * 0.006, seed + (dark ? 5 : 0), 5), vein = Math.pow(1 - Math.abs(Math.sin((x * 0.5 + y * 0.8) * 0.011 + n * 8)), dark ? 9 : 7), fine = Math.pow(1 - Math.abs(Math.sin((x * 0.9 - y * 0.4) * 0.03 + n * 14)), 14);
-        const vc = dark ? VD : VL, cl = fbm(x * 0.02, y * 0.02, seed + 9, 3) * 0.12;
-        r = base[0] * (1 - vein * 0.55 - fine * 0.3) + vc[0] * (vein * 0.55 + fine * 0.3) + cl * 255 * 0.3; g = base[1] * (1 - vein * 0.55 - fine * 0.3) + vc[1] * (vein * 0.55 + fine * 0.3) + cl * 255 * 0.3; b = base[2] * (1 - vein * 0.55 - fine * 0.3) + vc[2] * (vein * 0.55 + fine * 0.3) + cl * 255 * 0.3;
-      } else if (theme.type === 'felt') {
-        const nz = (hash2(x, y, seed) - 0.5) * (dark ? 20 : 12), t = fbm(x * 0.02, y * 0.02, seed, 3) - 0.5; r = base[0] + nz + t * 22; g = base[1] + nz + t * 22; b = base[2] + nz + t * 18;
-      } else { // glass-like: soft swirls + sparkle
-        const t = fbm(x * 0.004, y * 0.004, seed + (dark ? 3 : 0), 4), sw = Math.sin((x + y) * 0.01 + t * 9) * 0.5 + 0.5, sp = hash2(x, y, seed) > 0.9985 ? 120 : 0;
-        r = base[0] + (sw - 0.5) * (dark ? 40 : 20) + sp; g = base[1] + (sw - 0.5) * (dark ? 46 : 20) + sp; b = base[2] + (sw - 0.5) * (dark ? 56 : 20) + sp;
+    const W = 512, small = canvas(W, W), sctx = small.getContext('2d'), img = sctx.createImageData(W, W), d = img.data, VL = hex(theme.veinL || 0), VD = hex(theme.veinD || 0);
+    for (let y0 = 0; y0 < W; y0 += 32) {
+      for (let y = y0; y < y0 + 32; y++) for (let x = 0; x < W; x++) {
+        const X = x * 2, Y = y * 2, col = x >> 6, row = y >> 6, dark = ((col + (7 - row)) & 1) === 0, base = dark ? D : L; let r, g, b;
+        if (theme.type === 'marble') {
+          const n = fbm(X * 0.006, Y * 0.006, seed + (dark ? 5 : 0), 4), vein = Math.pow(1 - Math.abs(Math.sin((X * 0.5 + Y * 0.8) * 0.011 + n * 8)), dark ? 9 : 7), fine = Math.pow(1 - Math.abs(Math.sin((X * 0.9 - Y * 0.4) * 0.03 + n * 14)), 14);
+          const vc = dark ? VD : VL, cl = fbm(X * 0.02, Y * 0.02, seed + 9, 2) * 0.12, k1 = vein * 0.55 + fine * 0.3;
+          r = base[0] * (1 - k1) + vc[0] * k1 + cl * 76; g = base[1] * (1 - k1) + vc[1] * k1 + cl * 76; b = base[2] * (1 - k1) + vc[2] * k1 + cl * 76;
+        } else if (theme.type === 'felt') {
+          const nz = (hash2(X, Y, seed) - 0.5) * (dark ? 20 : 12), t = fbm(X * 0.02, Y * 0.02, seed, 2) - 0.5; r = base[0] + nz + t * 22; g = base[1] + nz + t * 22; b = base[2] + nz + t * 18;
+        } else { // glass-like: soft swirls + sparkle
+          const t = fbm(X * 0.004, Y * 0.004, seed + (dark ? 3 : 0), 3), sw = Math.sin((X + Y) * 0.01 + t * 9) * 0.5 + 0.5, sp = hash2(X, Y, seed) > 0.9985 ? 120 : 0;
+          r = base[0] + (sw - 0.5) * (dark ? 40 : 20) + sp; g = base[1] + (sw - 0.5) * (dark ? 46 : 20) + sp; b = base[2] + (sw - 0.5) * (dark ? 56 : 20) + sp;
+        }
+        const lx = x & 63, ly = y & 63, edge = Math.min(lx, 63 - lx, ly, 63 - ly), e = edge < 2 ? 0.8 + edge * 0.1 : 1;  // soft bevel between squares
+        const i = (y * W + x) * 4; d[i] = clamp255(r * e); d[i + 1] = clamp255(g * e); d[i + 2] = clamp255(b * e); d[i + 3] = 255;
       }
-      const lx = x & 127, ly = y & 127, edge = Math.min(lx, 127 - lx, ly, 127 - ly), e = edge < 3 ? 0.78 + edge * 0.07 : 1;  // soft bevel between squares
-      const i = (y * S + x) * 4; d[i] = clamp255(r * e); d[i + 1] = clamp255(g * e); d[i + 2] = clamp255(b * e); d[i + 3] = 255;
+      await yieldUI();
     }
-    ctx.putImageData(img, 0, 0);
+    sctx.putImageData(img, 0, 0); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; ctx.drawImage(small, 0, 0, S, S);
   }
   if (theme.type === 'wood') { ctx.strokeStyle = 'rgba(0,0,0,0.28)'; ctx.lineWidth = 2; for (let i = 0; i <= 8; i++) { ctx.beginPath(); ctx.moveTo(i * sq, 0); ctx.lineTo(i * sq, S); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0, i * sq); ctx.lineTo(S, i * sq); ctx.stroke(); } }
   return c;
@@ -120,9 +126,22 @@ function tex(canvasEl, renderer, repeat) {
   return t;
 }
 
-export function makeBoardTextures(key, renderer, custom) {
-  const theme = key === 'custom' && custom ? customTheme(custom) : (THEMES[key] || THEMES.wood), seed = 7;
-  return { theme, squares: tex(paintSquares(theme, seed), renderer), frame: tex(paintFrame(theme, seed), renderer), table: tex(paintTable(seed), renderer, 4) };
+const boardCache = new Map(), boardPending = new Map(), tableCache = new Map(), tablePending = new Map();
+/** board + frame textures: built in slices (UI stays smooth), cached, so switching back to a seen board is instant */
+export async function makeBoardTextures(key, renderer, custom) {
+  const ck = key === 'custom' ? 'custom:' + JSON.stringify(custom || {}) : key;
+  if (boardCache.has(ck)) { const v = boardCache.get(ck); boardCache.delete(ck); boardCache.set(ck, v); return v; }
+  if (boardPending.has(ck)) return boardPending.get(ck);
+  const job = (async () => {
+    const theme = key === 'custom' && custom ? customTheme(custom) : (THEMES[key] || THEMES.wood), seed = 7;
+    const squares = tex(await paintSquares(theme, seed), renderer); await yieldUI();
+    const frame = tex(paintFrame(theme, seed), renderer); await yieldUI();
+    const out = { theme, squares, frame }; boardCache.set(ck, out);
+    while (boardCache.size > 5) { const k = boardCache.keys().next().value, o = boardCache.get(k); o.squares.dispose(); o.frame.dispose(); boardCache.delete(k); }
+    return out;
+  })();
+  boardPending.set(ck, job);
+  try { return await job; } finally { boardPending.delete(ck); }
 }
 export function glowTexture(color) {
   const c = canvas(128, 128), ctx = c.getContext('2d'), g = ctx.createRadialGradient(64, 64, 4, 64, 64, 62);
@@ -135,32 +154,41 @@ export function softDot() {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 
-/** floor / table surface for each background scene */
-export function makeTableTexture(kind, renderer) {
-  if (kind === 'wood') { const t = tex(paintTable(7), renderer, 5); return t; }
-  const S = kind === 'glass' ? 256 : 512, c = canvas(S, S), ctx = c.getContext('2d'), img = ctx.createImageData(S, S), d = img.data, seed = 11;
-  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
-    let r, g, b;
-    if (kind === 'palace') {                         // black & cream marble tiles with gold grout
-      const tile = S / 4, tx = Math.floor(x / tile), ty = Math.floor(y / tile), dark = (tx + ty) & 1;
-      const n = fbm(x * 0.012, y * 0.012, seed + dark, 4), vein = Math.pow(1 - Math.abs(Math.sin((x + y * 0.7) * 0.03 + n * 7)), 9);
-      const base = dark ? [44, 18, 28] : [232, 222, 200], vc = dark ? [205, 165, 75] : [150, 140, 130];
-      r = base[0] * (1 - vein * 0.5) + vc[0] * vein * 0.5; g = base[1] * (1 - vein * 0.5) + vc[1] * vein * 0.5; b = base[2] * (1 - vein * 0.5) + vc[2] * vein * 0.5;
-      const e = Math.min(x % tile, tile - (x % tile), y % tile, tile - (y % tile)); if (e < 3) { r = 190; g = 148; b = 60; }
-    } else if (kind === 'grass') {                    // lawn
-      const t = fbm(x * 0.04, y * 0.04, seed, 3), blade = hash2(x, y, seed) - 0.5, streak = fbm(x * 0.5, y * 0.05, seed + 3, 2);
-      r = 40 + t * 60 + blade * 26; g = 92 + t * 90 + blade * 40 + streak * 20; b = 36 + t * 30 + blade * 18;
-    } else if (kind === 'glass') {                     // dark mirror-like deck with a faint grid
-      const gx = x % 64, gy = y % 64, line = (gx < 2 || gy < 2) ? 28 : 0, rad = 1 - Math.hypot(x - S / 2, y - S / 2) / (S * 0.8);
-      r = 10 + line * 0.6 + rad * 12; g = 16 + line * 0.9 + rad * 20; b = 40 + line * 1.5 + rad * 40; if (hash2(x, y, seed) > 0.997) { r += 90; g += 100; b += 120; }
-    } else {                                           // snow
-      const t = fbm(x * 0.03, y * 0.03, seed, 4), sp = hash2(x, y, seed) > 0.996 ? 20 : 0, nz = (hash2(x, y, seed + 5) - 0.5) * 8;
-      r = 232 + t * 20 + nz + sp; g = 240 + t * 14 + nz + sp; b = 252 + nz + sp;
+/** floor / table surface for each background scene (sliced + cached) */
+export async function makeTableTexture(kind, renderer) {
+  if (tableCache.has(kind)) return tableCache.get(kind);
+  if (tablePending.has(kind)) return tablePending.get(kind);
+  const job = (async () => {
+    if (kind === 'wood') { await yieldUI(); const t = tex(paintTable(7), renderer, 5); tableCache.set(kind, t); return t; }
+    const S = kind === 'glass' ? 256 : 384, c = canvas(S, S), ctx = c.getContext('2d'), img = ctx.createImageData(S, S), d = img.data, seed = 11;
+    for (let y0 = 0; y0 < S; y0 += 48) {
+      for (let y = y0; y < Math.min(S, y0 + 48); y++) for (let x = 0; x < S; x++) {
+        let r, g, b;
+        if (kind === 'palace') {                         // black & cream marble tiles with gold grout
+          const tile = S / 4, tx = Math.floor(x / tile), ty = Math.floor(y / tile), dark = (tx + ty) & 1;
+          const n = fbm(x * 0.016, y * 0.016, seed + dark, 3), vein = Math.pow(1 - Math.abs(Math.sin((x + y * 0.7) * 0.04 + n * 7)), 9);
+          const base = dark ? [44, 18, 28] : [232, 222, 200], vc = dark ? [205, 165, 75] : [150, 140, 130];
+          r = base[0] * (1 - vein * 0.5) + vc[0] * vein * 0.5; g = base[1] * (1 - vein * 0.5) + vc[1] * vein * 0.5; b = base[2] * (1 - vein * 0.5) + vc[2] * vein * 0.5;
+          const e = Math.min(x % tile, tile - (x % tile), y % tile, tile - (y % tile)); if (e < 2.5) { r = 190; g = 148; b = 60; }
+        } else if (kind === 'grass') {                    // lawn
+          const t = fbm(x * 0.05, y * 0.05, seed, 3), blade = hash2(x, y, seed) - 0.5, streak = fbm(x * 0.5, y * 0.05, seed + 3, 2);
+          r = 40 + t * 60 + blade * 26; g = 92 + t * 90 + blade * 40 + streak * 20; b = 36 + t * 30 + blade * 18;
+        } else if (kind === 'glass') {                     // dark mirror-like deck with a faint grid
+          const gx = x % 64, gy = y % 64, line = (gx < 2 || gy < 2) ? 28 : 0, rad = 1 - Math.hypot(x - S / 2, y - S / 2) / (S * 0.8);
+          r = 10 + line * 0.6 + rad * 12; g = 16 + line * 0.9 + rad * 20; b = 40 + line * 1.5 + rad * 40; if (hash2(x, y, seed) > 0.997) { r += 90; g += 100; b += 120; }
+        } else {                                           // snow
+          const t = fbm(x * 0.04, y * 0.04, seed, 3), sp = hash2(x, y, seed) > 0.996 ? 20 : 0, nz = (hash2(x, y, seed + 5) - 0.5) * 8;
+          r = 232 + t * 20 + nz + sp; g = 240 + t * 14 + nz + sp; b = 252 + nz + sp;
+        }
+        const i = (y * S + x) * 4; d[i] = clamp255(r); d[i + 1] = clamp255(g); d[i + 2] = clamp255(b); d[i + 3] = 255;
+      }
+      await yieldUI();
     }
-    const i = (y * S + x) * 4; d[i] = clamp255(r); d[i + 1] = clamp255(g); d[i + 2] = clamp255(b); d[i + 3] = 255;
-  }
-  ctx.putImageData(img, 0, 0);
-  return tex(c, renderer, { palace: 6, grass: 12, glass: 14, snow: 10 }[kind] || 8);
+    ctx.putImageData(img, 0, 0);
+    const t = tex(c, renderer, { palace: 6, grass: 12, glass: 14, snow: 10 }[kind] || 8); tableCache.set(kind, t); return t;
+  })();
+  tablePending.set(kind, job);
+  try { return await job; } finally { tablePending.delete(kind); }
 }
 export function skyTexture(stops) {            // vertical gradient used as the scene background; [top, horizon, bottom]
   const c = canvas(4, 512), x = c.getContext('2d'), g = x.createLinearGradient(0, 0, 0, 512);
@@ -174,22 +202,24 @@ export function moonTexture() {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 
-/** piece legend painted on the board's border panel: White's icons along the bottom edge, Black's along the top edge (upside-down for Black's view) */
+/** piece icons painted on the board's border panel, in the exact start-position order (R N B Q K B N R),
+    each one directly behind its own file: White's row along the bottom edge, Black's along the top edge (each icon upright for Black) */
+export const LEGEND_ORDER = ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r'];
 export function makeLegendTexture(set) {
   const S = 1536, c = canvas(S, S), x = c.getContext('2d'), unit = S / 11, royal = set === 'royal';
-  const G = { k: '♚\uFE0E', q: '♛\uFE0E', r: royal ? '🐘' : '♜\uFE0E', b: royal ? '🐪' : '♝\uFE0E', n: royal ? '🐴' : '♞\uFE0E', p: '♟\uFE0E' }, order = ['k', 'q', 'r', 'b', 'n', 'p'];
+  const G = { k: '♚\uFE0E', q: '♛\uFE0E', r: royal ? '🐘' : '♜\uFE0E', b: royal ? '🐪' : '♝\uFE0E', n: royal ? '🐴' : '♞\uFE0E', p: '♟\uFE0E' };
   const row = (color, yOff, flip) => {
-    x.save(); x.translate(S / 2, S / 2 + yOff * unit); if (flip) x.rotate(Math.PI);
-    order.forEach((t, i) => {
-      const px = (i - 2.5) * 1.3 * unit, white = color === 0;
+    LEGEND_ORDER.forEach((t, file) => {
+      const px = (file - 3.5) * unit, white = color === 0;
+      x.save(); x.translate(S / 2 + px, S / 2 + yOff * unit); if (flip) x.rotate(Math.PI);
       x.shadowColor = 'rgba(0,0,0,.55)'; x.shadowBlur = 10; x.shadowOffsetY = 3;
-      x.fillStyle = white ? '#f6ecd2' : '#1b1514'; x.beginPath(); x.arc(px, 0, unit * 0.32, 0, 7); x.fill(); x.shadowColor = 'transparent';
+      x.fillStyle = white ? '#f6ecd2' : '#1b1514'; x.beginPath(); x.arc(0, 0, unit * 0.355, 0, 7); x.fill(); x.shadowColor = 'transparent';
       x.lineWidth = unit * 0.05; x.strokeStyle = white ? '#d9a62e' : '#d0323b'; x.stroke();
       x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = white ? '#2a1a0a' : '#f6ecd2';
-      const emoji = !G[t].includes('\uFE0E'); x.font = emoji ? `${unit * 0.37}px "Noto Color Emoji","Apple Color Emoji","Segoe UI Emoji",sans-serif` : `900 ${unit * 0.44}px "DejaVu Sans","Segoe UI Symbol",serif`;
-      x.fillText(G[t], px, emoji ? unit * 0.03 : unit * 0.02);
+      const emoji = !G[t].includes('\uFE0E'); x.font = emoji ? `${unit * 0.42}px "Noto Color Emoji","Apple Color Emoji","Segoe UI Emoji",sans-serif` : `900 ${unit * 0.5}px "DejaVu Sans","Segoe UI Symbol",serif`;
+      x.fillText(G[t], 0, emoji ? unit * 0.03 : unit * 0.02);
+      x.restore();
     });
-    x.restore();
   };
   row(0, 5.05, false); row(1, -5.05, true);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t;

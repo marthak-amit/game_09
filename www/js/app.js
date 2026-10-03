@@ -31,11 +31,17 @@ const glyph = t => GL[Save.d.set][t];
 Save.load();
 for (const [k, v] of Object.entries(BOARDS)) if (!v.cost && !Save.d.boards.includes(k)) Save.d.boards.push(k);
 bus.toast = toast;
-const scene = new ChessScene($('#c'));
+const styleOpts = () => ({ board: Save.d.board, pcolor: Save.d.pcolor, set: Save.d.set, quality: Save.d.quality, speed: Save.d.speed, cinema: Save.d.cinema, labels: Save.d.labels, bg: Save.d.bg, custom: Save.d.customBoard });
+const scene = new ChessScene($('#c'), styleOpts());
 const G = { mode: null, human: 0, level: 2, board: null, moves: [], sans: [], legal: [], over: false, busy: false, thinking: false, sel: -1, targets: [], clocks: [0, 0], tc: TIMES[0], hints: 0, undos: 0, paused: false, startFen: E.START_FEN, id: 0, tick: null, captured: [[], []], lastMove: null };
 
-function applyStyle() { scene.setStyle({ board: Save.d.board, pcolor: Save.d.pcolor, set: Save.d.set, quality: Save.d.quality, speed: Save.d.speed, cinema: Save.d.cinema, labels: Save.d.labels, bg: Save.d.bg, custom: Save.d.customBoard }); syncQuick(); }
-applyStyle();
+let busyN = 0, busyT;
+/** push the saved look to the 3D scene. The menu updates at once; heavy textures build in slices and a small "Applying…" badge shows only if it takes a moment. */
+function applyStyle() {
+  syncQuick(); busyN++; clearTimeout(busyT); busyT = setTimeout(() => $('#busy').classList.add('show'), 150);
+  return scene.setStyle(styleOpts()).catch(e => console.error(e)).finally(() => { if (--busyN <= 0) { busyN = 0; clearTimeout(busyT); $('#busy').classList.remove('show'); } });
+}
+syncQuick();
 scene.onQuality = q => toast('Graphics set to ' + q + ' for smooth play', 2600);
 
 function syncQuick() {
@@ -52,7 +58,12 @@ $('#qPieces').onclick = () => {
 };
 let toastT;
 function toast(msg, ms = 1900) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), ms); }
-function modal(html) { $('#card').innerHTML = html; $('#card').dataset.dismiss = '0'; $('#modal').classList.remove('hidden'); G.paused = G.mode && !G.over ? true : G.paused; }
+function modal(html) { const c = $('#card'); c.className = 'card'; c.style.rotate = ''; c.innerHTML = html; c.dataset.dismiss = '0'; $('#modal').classList.remove('hidden'); G.paused = G.mode && !G.over ? true : G.paused; }
+/** full-height sheet (shop / settings): keeps the scroll position when it re-renders after a tap */
+function sheet(html) {
+  const c = $('#card'), was = c.classList.contains('sheet') && !$('#modal').classList.contains('hidden') ? ($('.sh-body', c) || {}).scrollTop || 0 : 0;
+  modal(html); c.classList.add('sheet'); c.dataset.dismiss = '1'; const b = $('.sh-body', c); if (b) b.scrollTop = was;
+}
 function closeModal() { $('#modal').classList.add('hidden'); if (G.mode && !G.over) G.paused = false; }
 const modalOpen = () => !$('#modal').classList.contains('hidden');
 $('#card').addEventListener('click', e => {
@@ -141,7 +152,17 @@ function trackCapture(b, m) {
   const flag = (m >> 16) & 15, to = (m >> 6) & 63, us = b.turn;
   if (flag & E.F_CAP) { const v = (flag & E.F_EP) ? E.P : (b.b[to] & 7); G.captured[us].push(TCH[v]); }
 }
+function syncF2F() {
+  const pvp = G.mode === 'pvp', f = pvp && !Save.d.autoRotate; $('#hud').classList.toggle('f2f', f);
+  $('#btnTurn').classList.toggle('hidden', !pvp); $('#btnTurn i').textContent = f ? '🔒' : '🔄'; $('#btnTurn span').textContent = f ? 'Fixed' : 'Turning';
+}
+function setBoardMode(fixed) {
+  Save.d.autoRotate = !fixed; Save.save(); syncF2F();
+  if (G.mode === 'pvp' && G.board) scene.resetCamera(fixed ? 'white' : (G.board.turn ? 'black' : 'white'));
+}
+$('#btnTurn').onclick = () => { Sfx.click(); setBoardMode(Save.d.autoRotate); toast(Save.d.autoRotate ? '🔄 Board turns to the player to move' : '🔒 Board stays fixed – sit face to face', 2200); };
 function setupBars() {
+  syncF2F();
   const paintAv = (id, color, glyph) => { const e = $(id); e.className = 'avatar ' + (color ? 'avb' : 'avw'); e.textContent = glyph; };
   if (G.mode === 'puzzle') {
     const pz = PUZ[G.puz.i]; G.bottomColor = G.human;
@@ -226,7 +247,7 @@ function promotionDialog(mv) {
   modal(`<h2>Pawn Promotion</h2><p>Your ${set === 'royal' ? 'soldier' : 'pawn'} reached the last rank!<br>Choose what it becomes:</p>
     <div class="promo2">${['q', 'r', 'b', 'n'].map(t => `<button class="pbtn ${color ? 'pb' : 'pw'}" data-act="promo" data-a="${t}"><span class="pgl">${glyph(t)}</span><b>${nm[t]}</b></button>`).join('')}</div>
     <div class="col"><button class="btn ghost" data-act="promoCancel">Cancel move</button></div>`);
-  $('#card').dataset.dismiss = '0';
+  $('#card').dataset.dismiss = '0'; if (G.mode === 'pvp' && !Save.d.autoRotate && color) $('#card').style.rotate = '180deg';   // Black sits opposite: dialog faces them
 }
 const ACT = {};
 ACT.promoCancel = () => { G._promo = null; closeModal(); toast('Move cancelled – choose another move'); };
@@ -353,7 +374,7 @@ ACT.homeAfter = async () => { await Ads.interstitial(); showHome(); };
 /* ---------- setup ---------- */
 const setup = { mode: 'ai', level: 2, color: 'white', time: 'none' };
 function showSetup(mode) {
-  const ls = Save.d.lastSetup; setup.mode = mode; setup.level = ls.level; setup.color = ls.color; setup.time = ls.time;
+  const ls = Save.d.lastSetup; setup.mode = mode; setup.rot = Save.d.autoRotate ? 'auto' : 'fixed'; setup.level = ls.level; setup.color = ls.color; setup.time = ls.time;
   renderSetup();
 }
 function renderSetup() {
@@ -361,14 +382,15 @@ function renderSetup() {
   const ai = setup.mode === 'ai';
   modal(`<h2>${ai ? 'Play vs Computer' : 'Pass & Play'}</h2>
    ${ai ? `<h3>Opponent</h3><div class="lvl">${Object.entries(E.LEVELS).map(([k, L]) => opt('level', +k, L.name, '★'.repeat(Math.ceil(k / 1.2)))).join('')}</div>
-   <h3>Your colour</h3><div class="chips">${opt('color', 'white', '♔ White')}${opt('color', 'random', '🎲 Random')}${opt('color', 'black', '♚ Black')}</div>` : '<p>Two players, one phone. The board turns to face whoever is to move.</p>'}
+   <h3>Your colour</h3><div class="chips">${opt('color', 'white', '♔ White')}${opt('color', 'random', '🎲 Random')}${opt('color', 'black', '♚ Black')}</div>` : `<h3>Board</h3><div class="chips">${opt('rot', 'auto', '🔄 Turns', 'faces the player to move')}${opt('rot', 'fixed', '🪑 Fixed', 'sit face to face')}</div>
+   <p class="hint">${setup.rot === 'fixed' ? 'The board never turns. Put the phone flat between you – White sits at the bottom, Black opposite. Black\'s bar, name cards and dialogs flip to face them.' : 'The board turns to face whoever is to move. You can switch to a fixed board any time in the game.'}</p>`}
    <h3>Clock</h3><div class="chips">${TIMES.map(t => opt('time', t.id, t.name)).join('')}</div>
    <div class="col"><button class="btn gold" data-act="start">Start game</button><button class="btn ghost" data-act="close">Cancel</button></div>`);
   $('#card').dataset.dismiss = '1';
 }
 ACT.set = a => { const [g, v] = a.split(':'); setup[g] = g === 'level' ? +v : v; renderSetup(); };
 ACT.start = async () => {
-  Save.d.lastSetup = { level: setup.level, color: setup.color, time: setup.time }; Save.save();
+  Save.d.lastSetup = { level: setup.level, color: setup.color, time: setup.time }; if (setup.mode === 'pvp') Save.d.autoRotate = setup.rot !== 'fixed'; Save.save();
   const human = setup.color === 'black' ? 1 : setup.color === 'random' ? (Math.random() < 0.5 ? 0 : 1) : 0;
   newGame({ mode: setup.mode, level: setup.level, human: setup.mode === 'ai' ? human : 0, time: setup.time });
 };
@@ -390,23 +412,36 @@ ACT.claim = async a => {
   Save.d.coins += CFG.daily[st.idx] * (a === 'x2' ? 2 : 1); Save.save(); Sfx.coin(); showHome(); showDaily();
 };
 $('#btnGift').onclick = () => { Sfx.init(); Sfx.click(); showDaily(); };
+let shopTab = 'coins';
+const BG_GRAD = { wood: 'linear-gradient(#3a2414,#8a5a32)', palace: 'linear-gradient(#2a1a3a,#d9b36a)', garden: 'linear-gradient(#2c3b86,#ffb06b 60%,#4a7a3a)', night: 'linear-gradient(#01020a,#26357a)', snow: 'linear-gradient(#8aaed8,#f4f8ff)' };
 function showShop() {
-  const d = Save.d, I = CFG.iap, ad = d.adCoins.date === todayStr() ? d.adCoins.n : 0;
-  const row = (kind, key, info, owned, cur, sw) => `<div class="item"><div class="sw" style="background:${sw}"></div><div class="grow">${info.name}<small>${owned ? 'Unlocked' : info.cost + ' coins'}</small></div><button class="btn ${cur ? 'ghost' : owned ? 'gold' : ''}" data-act="${kind}" data-a="${key}">${cur ? 'Equipped' : owned ? 'Equip' : '🪙 ' + info.cost}</button></div>`;
-  const bsw = Object.fromEntries(Object.entries(BOARDS).map(([k, v]) => [k, `linear-gradient(135deg,${v.light} 50%,${v.dark} 50%)`]));
-  const psw = { ivory: 'linear-gradient(135deg,#d8c7a1 50%,#23201f 50%)', rosewood: 'linear-gradient(135deg,#e6c99a 50%,#5a2a20 50%)', gold: 'linear-gradient(135deg,#dfe3ea 50%,#d0a233 50%)' };
-  modal(`<h2>Shop</h2><p>🪙 ${d.coins} coins</p><div class="list">
-   <div class="item"><div class="grow">▶ Free coins<small>${5 - ad} left today · +60 each</small></div><button class="btn ad" data-act="freeCoins">Watch</button></div>
-   ${d.noAds ? '' : `<div class="item"><div class="grow">🚫 ${I.remove_ads.name}<small>${I.remove_ads.desc}</small></div><button class="btn gold" data-act="buy" data-a="remove_ads">${I.remove_ads.price}</button></div>`}
-   ${['coins_500', 'coins_1500', 'coins_4000'].map(k => `<div class="item"><div class="grow">🪙 ${I[k].name}</div><button class="btn gold" data-act="buy" data-a="${k}">${I[k].price}</button></div>`).join('')}
-   </div><h3>Boards</h3><div class="list">${Object.entries(BOARDS).filter(([k]) => k !== 'custom').map(([k, v]) => row('board', k, v, d.boards.includes(k), d.board === k, bsw[k])).join('')}</div>
-   <h3>Piece colours</h3><div class="list">${Object.entries(PIECE_COLORS).map(([k, v]) => row('pcolor', k, v, d.pcolors.includes(k), d.pcolor === k, psw[k])).join('')}</div>
-   <div class="col"><button class="btn ghost" data-act="close">Close</button></div>`);
-  $('#card').dataset.dismiss = '1';
+  const d = Save.d, I = CFG.iap, ad = d.adCoins.date === todayStr() ? d.adCoins.n : 0, t = shopTab;
+  const state = (owned, cur, cost, kind, key) => cur ? `<button class="gbtn eq" disabled>✓ Equipped</button>` : owned ? `<button class="gbtn use" data-act="${kind}" data-a="${key}">Equip</button>` : `<button class="gbtn buy ${d.coins >= cost ? '' : 'poor'}" data-act="${kind}" data-a="${key}">🪙 ${cost}</button>`;
+  const tabs = [['coins', '🪙', 'Coins'], ['boards', '♟', 'Boards'], ['scenes', '🏞', 'Scenes'], ['pieces', '🎨', 'Pieces']];
+  let body = '';
+  if (t === 'coins') {
+    body = `<div class="banner ad"><div class="bi">▶</div><div class="grow"><b>Free coins</b><small>${5 - ad} of 5 left today · +60 🪙 each</small></div><button class="btn ad" data-act="freeCoins" ${ad >= 5 ? 'disabled' : ''}>Watch</button></div>
+     ${d.noAds ? '<div class="banner done"><div class="bi">✓</div><div class="grow"><b>Ads removed</b><small>Thank you for supporting us 💖</small></div></div>' : `<div class="banner gold"><div class="bi">🚫</div><div class="grow"><b>${I.remove_ads.name}</b><small>${I.remove_ads.desc}</small></div><button class="btn gold" data-act="buy" data-a="remove_ads">${I.remove_ads.price}</button></div>`}
+     <div class="sec">Coin packs</div><div class="packs">${['coins_500', 'coins_1500', 'coins_4000'].map((k, i) => `<button class="pack ${i === 1 ? 'best' : ''}" data-act="buy" data-a="${k}">${i === 1 ? '<em>Best value</em>' : ''}<span class="pc">${['🪙', '💰', '🏆'][i]}</span><b>${I[k].coins}</b><small>coins</small><span class="pp">${I[k].price}</span></button>`).join('')}</div>
+     <p class="fine">Coins unlock boards, scenes and piece colours. Everything is optional – the game is fully playable for free.</p>`;
+  } else if (t === 'boards') {
+    body = `<div class="grid">${Object.entries(BOARDS).filter(([k]) => k !== 'custom').map(([k, v]) => `<div class="gcard ${d.board === k ? 'cur' : ''}"><div class="prev chk" style="--l:${v.light};--d:${v.dark}"></div><b>${v.name}</b>${state(d.boards.includes(k), d.board === k, v.cost, 'board', k)}</div>`).join('')}</div>
+     <p class="fine">Want your own colours? Settings → Appearance → Custom colours (free).</p>`;
+  } else if (t === 'scenes') {
+    body = `<div class="grid">${Object.entries(BGS).map(([k, v]) => { const own = d.bgs.includes(k); return `<div class="gcard ${d.bg === k ? 'cur' : ''}"><div class="prev scn" style="background:${BG_GRAD[k]}"><span>${v.icon}</span></div><b>${v.name}</b>${own ? '' : `<button class="gbtn ghost2" data-act="bgPreview" data-a="${k}">👁 Preview</button>`}${state(own, d.bg === k, v.cost, 'bg', k)}</div>`; }).join('')}</div>`;
+  } else {
+    const psw = { ivory: ['#e9dcb9', '#2a2524'], rosewood: ['#efd6a8', '#6a2e22'], gold: ['#e3e7ee', '#d6a737'] };
+    body = `<div class="grid">${Object.entries(PIECE_COLORS).map(([k, v]) => `<div class="gcard ${d.pcolor === k ? 'cur' : ''}"><div class="prev pcs"><i style="background:${psw[k][0]}"></i><i style="background:${psw[k][1]}"></i></div><b>${v.name}</b>${state(d.pcolors.includes(k), d.pcolor === k, v.cost, 'pcolor', k)}</div>`).join('')}</div>`;
+  }
+  sheet(`<div class="sh-head"><h2>🛍 Shop</h2><span class="coinpill">🪙 ${d.coins}</span><button class="x" data-act="close" aria-label="Close">✕</button></div>
+   <div class="tabs">${tabs.map(([k, ic, l]) => `<button class="${t === k ? 'on' : ''}" data-act="shopTab" data-a="${k}"><i>${ic}</i>${l}</button>`).join('')}</div>
+   <div class="sh-body">${body}</div>`);
 }
+ACT.shopTab = k => { shopTab = k; showShop(); };
 ACT.bg = k => { if (!Save.d.bgs.includes(k)) { if (Save.d.coins < BGS[k].cost) return toast('Not enough coins'); Save.d.coins -= BGS[k].cost; Save.d.bgs.push(k); Sfx.coin(); } Save.d.bg = k; Save.save(); applyStyle(); showShop(); };
 let bgPrevT;
-ACT.bgPreview = k => { closeModal(); scene.setStyle({ bg: k }); toast(`Previewing ${BGS[k].name} – buy it in the Shop to keep`, 3200); clearTimeout(bgPrevT); bgPrevT = setTimeout(() => { scene.setStyle({ bg: Save.d.bg }); showShop(); }, 6500); };
+ACT.bgPreview = k => { closeModal(); applyBgOnly(k); toast(`Previewing ${BGS[k].name} – buy it in the Shop to keep`, 3200); clearTimeout(bgPrevT); bgPrevT = setTimeout(() => { applyBgOnly(Save.d.bg); showShop(); }, 6500); };
+const applyBgOnly = k => scene.setStyle({ bg: k });
 ACT.board = k => { if (!Save.d.boards.includes(k)) { if (Save.d.coins < BOARDS[k].cost) return toast('Not enough coins'); Save.d.coins -= BOARDS[k].cost; Save.d.boards.push(k); Sfx.coin(); } Save.d.board = k; Save.save(); applyStyle(); showShop(); };
 ACT.pcolor = k => { if (!Save.d.pcolors.includes(k)) { if (Save.d.coins < PIECE_COLORS[k].cost) return toast('Not enough coins'); Save.d.coins -= PIECE_COLORS[k].cost; Save.d.pcolors.push(k); Sfx.coin(); } Save.d.pcolor = k; Save.save(); applyStyle(); showShop(); };
 ACT.freeCoins = async () => { const a = Save.d.adCoins, t = todayStr(); if (a.date !== t) { a.date = t; a.n = 0; } if (a.n >= 5) return toast('Come back tomorrow!'); if (await Ads.rewarded()) { a.n++; Save.d.coins += 60; Save.save(); toast('+60 🪙'); Sfx.coin(); showShop(); } };
@@ -414,24 +449,33 @@ ACT.buy = async id => { if (await IAP.buy(id)) { const p = CFG.iap[id]; if (id =
 $('#btnShop').onclick = () => { Sfx.init(); Sfx.click(); showShop(); };
 $('#homeCoins').onclick = () => { showShop(); };
 function showSettings() {
-  const d = Save.d, sw = (k, label) => `<div class="switch"><div class="grow">${label}</div><button class="btn ${d[k] ? 'gold' : 'ghost'}" data-act="tog" data-a="${k}">${d[k] ? 'ON' : 'OFF'}</button></div>`;
-  const opts = (k, vals) => vals.map(([v, l]) => `<button class="opt ${d[k] === v ? 'on' : ''}" data-act="pick" data-a="${k}:${v}">${l}</button>`).join('');
-  modal(`<h2>Settings</h2><div class="list">${sw('sound', 'Sound effects')}${sw('music', 'Music')}${sw('vib', 'Vibration')}${sw('legal', 'Show legal moves')}${sw('cinema', 'Cinematic move camera')}${sw('autoRotate', 'Auto-turn board (Pass &amp; Play)')}</div>
-   <h3>Piece style</h3><div class="chips">${opts('set', [['royal', '🐴 Royal Animals'], ['staunton', '♞ Classic']])}</div>
-   <h3>Board colours</h3><div class="chips boards">${Object.entries(BOARDS).filter(([k]) => d.boards.includes(k)).map(([k, v]) => { const sw = k === 'custom' ? `linear-gradient(135deg,${d.customBoard.light} 50%,${d.customBoard.dark} 50%)` : `linear-gradient(135deg,${v.light} 50%,${v.dark} 50%)`; return `<button class="opt bo ${d.board === k ? 'on' : ''}" data-act="pick" data-a="board:${k}"><i style="background:${sw}"></i><small>${v.name}</small></button>`; }).join('')}<button class="opt bo" data-act="toShopBoards"><i style="background:linear-gradient(135deg,#fff 50%,#caa 50%);display:grid;place-items:center;font-style:normal">🛍</i><small>More boards</small></button></div>
-   ${d.board === 'custom' ? `<div class="custom"><label>Light squares<input type="color" data-cb="light" value="${d.customBoard.light}"></label><label>Dark squares<input type="color" data-cb="dark" value="${d.customBoard.dark}"></label></div>
-   <div class="chips">${[['wood', 'Wood grain'], ['felt', 'Matte'], ['glass', 'Glossy']].map(([f, l]) => `<button class="opt ${d.customBoard.finish === f ? 'on' : ''}" data-act="cfinish" data-a="${f}">${l}</button>`).join('')}</div>` : ''}
-   <h3>Background</h3><div class="chips">${Object.entries(BGS).filter(([k]) => d.bgs.includes(k)).map(([k, v]) => `<button class="opt ${d.bg === k ? 'on' : ''}" data-act="pick" data-a="bg:${k}">${v.icon}<small>${v.name}</small></button>`).join('')}<button class="opt" data-act="toShopBg">🛍<small>More in shop</small></button></div>
-   <h3>Piece icons (who is who)</h3><div class="chips">${opts('labels', [['border', 'On board border'], ['above', 'Above pieces'], ['off', 'Off']])}</div>
-   <h3>Graphics</h3><div class="chips">${opts('quality', [['auto', 'Auto'], ['high', 'High'], ['medium', 'Medium'], ['low', 'Low']])}</div>
-   <h3>Animation speed</h3><div class="chips">${opts('speed', [[0.7, 'Slow'], [1, 'Normal'], [1.6, 'Fast']])}</div>
-   <div class="col"><button class="btn dark" data-act="restore">Restore purchases</button><button class="btn gold" data-act="close">Done</button></div>`);
-  $('#card').dataset.dismiss = '1';
+  const d = Save.d, tg = (k, ic, label, sub) => `<div class="row-s"><i>${ic}</i><div class="grow">${label}${sub ? `<small>${sub}</small>` : ''}</div><button class="tg ${d[k] ? 'on' : ''}" data-act="tog" data-a="${k}" role="switch" aria-checked="${!!d[k]}"></button></div>`;
+  const seg = (k, vals) => `<div class="seg">${vals.map(([v, l]) => `<button class="${d[k] === v ? 'on' : ''}" data-act="pick" data-a="${k}:${v}">${l}</button>`).join('')}</div>`;
+  const lbl = (ic, t, sub) => `<div class="row-l"><i>${ic}</i><div class="grow">${t}${sub ? `<small>${sub}</small>` : ''}</div></div>`;
+  const bsw = (k, v) => k === 'custom' ? `linear-gradient(135deg,${d.customBoard.light} 50%,${d.customBoard.dark} 50%)` : `linear-gradient(135deg,${v.light} 50%,${v.dark} 50%)`;
+  sheet(`<div class="sh-head"><h2>⚙ Settings</h2><button class="x" data-act="close" aria-label="Close">✕</button></div>
+   <div class="sh-body">
+   <div class="sec">Sound &amp; feel</div><div class="grp">${tg('sound', '🔊', 'Sound effects')}${tg('music', '🎵', 'Music')}${tg('vib', '📳', 'Vibration')}</div>
+   <div class="sec">Gameplay</div><div class="grp">${tg('legal', '🟢', 'Show legal moves', 'Dots on squares a piece can reach')}${tg('cinema', '🎬', 'Cinematic move camera', 'Camera follows every move')}
+     <div class="row-s col2">${lbl('🧑‍🤝‍🧑', 'Pass &amp; Play board', 'Fixed = sit face to face, board never turns')}${`<div class="seg"><button class="${d.autoRotate ? 'on' : ''}" data-act="rot" data-a="auto">🔄 Turns</button><button class="${!d.autoRotate ? 'on' : ''}" data-act="rot" data-a="fixed">🪑 Fixed</button></div>`}</div></div>
+   <div class="sec">Appearance</div><div class="grp">
+     <div class="row-s col2">${lbl('🐴', 'Piece style')}${seg('set', [['royal', '🐴 Royal Animals'], ['staunton', '♞ Classic']])}</div>
+     <div class="row-s col2">${lbl('🎨', 'Board colours')}<div class="swgrid">${Object.entries(BOARDS).filter(([k]) => d.boards.includes(k)).map(([k, v]) => `<button class="swb ${d.board === k ? 'on' : ''}" data-act="pick" data-a="board:${k}"><i style="background:${bsw(k, v)}"></i><small>${k === 'custom' ? 'Custom' : v.name}</small></button>`).join('')}<button class="swb more" data-act="toShopBoards"><i>＋</i><small>More</small></button></div>
+       ${d.board === 'custom' ? `<div class="custom"><label>Light squares<input type="color" data-cb="light" value="${d.customBoard.light}"></label><label>Dark squares<input type="color" data-cb="dark" value="${d.customBoard.dark}"></label></div>
+       <div class="seg">${[['wood', 'Wood'], ['felt', 'Matte'], ['glass', 'Glossy']].map(([f, l]) => `<button class="${d.customBoard.finish === f ? 'on' : ''}" data-act="cfinish" data-a="${f}">${l}</button>`).join('')}</div>` : ''}</div>
+     <div class="row-s col2">${lbl('🏞', 'Background')}<div class="swgrid bgs">${Object.entries(BGS).filter(([k]) => d.bgs.includes(k)).map(([k, v]) => `<button class="swb ${d.bg === k ? 'on' : ''}" data-act="pick" data-a="bg:${k}"><i style="background:${BG_GRAD[k]}">${v.icon}</i><small>${v.name}</small></button>`).join('')}<button class="swb more" data-act="toShopBg"><i>＋</i><small>More</small></button></div></div>
+     <div class="row-s col2">${lbl('🏷', 'Piece icons (who is who)')}${seg('labels', [['border', 'Border'], ['above', 'Above'], ['off', 'Off']])}</div></div>
+   <div class="sec">Graphics</div><div class="grp">
+     <div class="row-s col2">${lbl('✨', 'Quality', 'Lower it if the game feels slow')}${seg('quality', [['auto', 'Auto'], ['high', 'High'], ['medium', 'Med'], ['low', 'Low']])}</div>
+     <div class="row-s col2">${lbl('⏩', 'Animation speed')}${seg('speed', [[0.7, 'Slow'], [1, 'Normal'], [1.6, 'Fast']])}</div></div>
+   <div class="foot"><button class="btn dark" data-act="restore">Restore purchases</button></div></div>
+   <div class="sh-foot"><button class="btn gold" data-act="close">Done</button></div>`);
 }
+ACT.rot = v => { setBoardMode(v === 'fixed'); showSettings(); };
 ACT.settings = () => showSettings();
 ACT.tog = k => { Save.d[k] = !Save.d[k]; Save.save(); if (k === 'cinema') applyStyle(); if (k === 'music') Sfx.music(Save.d.music); if (k === 'sound' && !Save.d.sound) Sfx.music(false); showSettings(); };
 ACT.pick = a => { const [k, v] = a.split(':'); Save.d[k] = k === 'speed' ? +v : v; Save.save(); applyStyle(); if (G.board && G.mode && k === 'set') { updateHud(); } showSettings(); };
-ACT.toShopBg = () => showShop(); ACT.toShopBoards = () => { showShop(); setTimeout(() => { const c = $('.card'); if (c) c.scrollTop = 900; }, 50); };
+ACT.toShopBg = () => { shopTab = 'scenes'; showShop(); }; ACT.toShopBoards = () => { shopTab = 'boards'; showShop(); };
 ACT.cfinish = f => { Save.d.customBoard.finish = f; Save.save(); applyStyle(); showSettings(); };
 ACT.restore = () => toast('Purchases restored (if any)');
 $('#btnSettings').onclick = () => { Sfx.init(); Sfx.click(); showSettings(); };
@@ -519,10 +563,11 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) pause
 if ('serviceWorker' in navigator && !Native && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
 
 Ads.init();
-setTimeout(() => {
+Promise.all([scene.ready, sleep(350)]).then(() => {
   showHome(); $('#loading').classList.add('done'); setTimeout(() => $('#loading').remove(), 700);
   if (!dailyState().claimed && Save.d.gamesPlayed >= 1) setTimeout(showDaily, 600);
-}, 400);
+  setTimeout(() => scene.prewarm({ sets: [Save.d.set === 'royal' ? 'staunton' : 'royal'], boards: Save.d.boards.filter(k => k !== Save.d.board && k !== 'custom').slice(0, 3), bgs: Save.d.bgs.filter(k => k !== Save.d.bg) }), 1500);
+});
 window.__play = u => { const m = G.board.parseUci(u, G.legal); if (m) commit(m); return !!m; };
 window.__setFen = fen => { closeModal(); G.board.load(fen); G.startFen = fen; G.moves = []; G.sans = []; G.legal = G.board.legal(); G.over = false; G.busy = false; scene.loadPosition(G.board.b); updateHud(); };
 window.__G = G; window.__scene = scene; window.__ACT = ACT; window.__E = E;

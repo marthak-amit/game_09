@@ -6,15 +6,16 @@ const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const TAU = Math.PI * 2;
 
 /* ---------- geometry helpers ---------- */
-function clean(g) { g.deleteAttribute('uv'); if (!g.index) { g = g.toNonIndexed(); } return g.index ? g.toNonIndexed() : g; }
+function clean(g) { g.deleteAttribute('uv'); return g.index ? g.toNonIndexed() : g; }
 function lathe(profile, seg = 40) {
+  seg = Math.max(18, Math.round(seg * 0.6));   // mobile-friendly triangle budget
   const pts = profile.map(p => new THREE.Vector2(p[0], p[1]));
   const g = new THREE.LatheGeometry(pts, seg); g.computeVertexNormals(); return g;
 }
 function ellipsoid(rx, ry, rz, ws = 20, hs = 14) { const g = new THREE.SphereGeometry(1, ws, hs); g.scale(rx, ry, rz); return g; }
 /** swept tube along a smooth curve with per-control-point radii (tapered limbs, necks, trunks, tails) */
 function taper(points, radii, o = {}) {
-  const radial = o.radial || 14, segs = o.segs || 28, ex = o.ex || 1, ez = o.ez || 1;
+  const radial = Math.max(8, Math.round((o.radial || 14) * 0.75)), segs = Math.round((o.segs || 28) * 0.8), ex = o.ex || 1, ez = o.ez || 1;
   const curve = new THREE.CatmullRomCurve3(points.map(p => V(p[0], p[1], p[2])), false, 'centripetal');
   const fr = curve.computeFrenetFrames(segs, false), pos = [], idx = [];
   for (let i = 0; i <= segs; i++) {
@@ -44,7 +45,7 @@ function taper(points, radii, o = {}) {
 
 /** lofted body: explicit elliptical cross-sections [z, y, rx, ry] along Z, smooth (Catmull-Rom) between controls, rounded ends */
 function loft(ctrl, o = {}) {
-  const radial = o.radial || 22, segs = o.segs || 30, n = ctrl.length - 1, pos = [], idx = [];
+  const radial = Math.max(10, Math.round((o.radial || 22) * 0.7)), segs = Math.round((o.segs || 30) * 0.8), n = ctrl.length - 1, pos = [], idx = [];
   const sample = (t, k) => {
     const f = t * n, i = Math.min(n - 1, Math.floor(f)), u = f - i;
     const p0 = ctrl[Math.max(0, i - 1)][k], p1 = ctrl[i][k], p2 = ctrl[i + 1][k], p3 = ctrl[Math.min(n, i + 2)][k];

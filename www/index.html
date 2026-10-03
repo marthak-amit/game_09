@@ -55,6 +55,7 @@
     </div>
     <div class="dock">
       <button class="dk" id="btnUndo"><i>↶</i><span>Undo</span><b id="nUndo">3</b></button>
+      <button class="dk hidden" id="btnTurn"><i>🔄</i><span>Turning</span></button>
       <button class="dk" id="btnHint"><i>💡</i><span>Hint</span><b id="nHint">3</b></button>
       <button class="dk" id="qBoard" aria-label="Switch board colours"><i class="qsw"></i><span>Board</span></button>
       <button class="dk" id="qPieces" aria-label="Switch piece style"><i class="qg">🐴</i><span>Pieces</span></button>
@@ -64,6 +65,7 @@
   </div>
 
   <div id="toast"></div>
+  <div id="busy"><i></i>Applying…</div>
   <div id="modal" class="overlay hidden"><div class="card" id="card"></div></div>
 </div>
 <script src="js/chess-engine.js"></script>

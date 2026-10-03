@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { buildPiece, makeMaterials, SCHEMES } from './pieces.js';
-import { makeBoardTextures, makeTableTexture, makeLegendTexture, skyTexture, moonTexture, glowTexture, softDot } from './textures.js';
+import { makeBoardTextures, makeTableTexture, makeLegendTexture, LEGEND_ORDER, skyTexture, moonTexture, glowTexture, softDot } from './textures.js';
 import { Sfx } from './audio.js';
 
 const TYPE_CH = ' pnbrqk';
@@ -18,9 +18,9 @@ const E = {
   back: u => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(u - 1, 3) + c1 * Math.pow(u - 1, 2); }
 };
 const QUALITY = {
-  high: { shadow: 2048, dpr: 2, shadows: true },
-  medium: { shadow: 1024, dpr: 1.5, shadows: true },
-  low: { shadow: 512, dpr: 1, shadows: false }
+  high: { shadow: 2048, dpr: 2, shadows: true, soft: true },
+  medium: { shadow: 1024, dpr: 1.25, shadows: true, soft: false },
+  low: { shadow: 512, dpr: 1, shadows: false, soft: false }
 };
 
 const BG_LOOK = {
@@ -34,12 +34,14 @@ const BG_LOOK = {
   snow:   { sky: ['#8aaed8', '#e6eef9'], fog: 0xe6eef9, near: 20, far: 72, table: 'snow', tRough: 0.8, tMetal: 0, tEnv: 0.5, sun: 0xeaf2ff, sunI: 3.0, warm: 0xdfe9ff, warmI: 30, fillC: 0xbcd0ff, fillI: 0.8, hemiS: 0xeaf2ff, hemiG: 0x8aa0c0, hemiI: 0.7, env: 0.6, exp: 0.95, fx: 'snow' }
 };
 
+const sleep0 = () => new Promise(r => setTimeout(r, 0));
+
 export class ChessScene {
-  constructor(canvas) {
+  constructor(canvas, init = {}) {
     this.canvas = canvas; this.pieces = new Map(); this.tweens = []; this.speed = 1; this.t = 0; this.onPick = null;
-    this.all = new Set(); this.set = 'royal'; this.scheme = 'ivory'; this.boardKey = 'wood'; this.quality = 'high'; this.tpl = {}; this.mats = null;
+    this.all = new Set(); this.set = 'royal'; this.scheme = 'ivory'; this.boardKey = 'wood'; this.quality = 'high'; this.kits = {}; this.kit = null; this.boardTok = 0; this.bgTok = 0; this.pieceTok = 0; this.qualityReq = null;
     this.targets = []; this.hl = {}; this.custom = null; this.customJson = ''; this.cine = true; this.labels = 'border'; this.labelCache = {}; this.frames = 0; this.acc = 0; this.noAdapt = new URLSearchParams(location.search).has('fast'); this.shake = 0; this.maxDt = new URLSearchParams(location.search).has('fast') ? 0.4 : 0.05; this.running = true; this.menuSpin = false; this.camTween = null;
-    const r = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+    const r = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: (window.devicePixelRatio || 1) < 2, powerPreference: 'high-performance' });
     r.shadowMap.enabled = true; r.shadowMap.type = THREE.PCFSoftShadowMap; r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.0;
     const sc = this.scene = new THREE.Scene(); sc.background = new THREE.Color(0x120c08); sc.fog = new THREE.Fog(0x120c08, 26, 62);
     const pm = new THREE.PMREMGenerator(r); sc.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; sc.environmentIntensity = 0.45; pm.dispose();
@@ -59,22 +61,25 @@ export class ChessScene {
     this.glowRed = glowTexture('rgba(255,60,50,1)'); this.glowGreen = glowTexture('rgba(90,255,150,1)'); this.glowGold = glowTexture('rgba(255,220,90,1)'); this.dot = softDot();
     this.sprites = []; for (let i = 0; i < 70; i++) { const m = new THREE.SpriteMaterial({ map: this.dot, transparent: true, depthWrite: false, opacity: 0 }); const s = new THREE.Sprite(m); s.visible = false; s.userData = { life: 0 }; this.fx.add(s); this.sprites.push(s); }
     this.ray = new THREE.Raycaster(); this.plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-    this.applyQuality(this.quality); this.buildBoard(); this.buildMaterials(); this.bgKey = null; this.setBackground('wood');
+    if (init.set) this.set = init.set; if (init.pcolor) this.scheme = init.pcolor; if (init.board) this.boardKey = init.board; if (init.custom) { this.custom = init.custom; this.customJson = JSON.stringify(init.custom); }
+    if (init.labels) this.labels = init.labels; if (init.cinema !== undefined) this.cine = init.cinema; if (init.speed !== undefined) this.speed = init.speed;
+    this.qualityReq = init.quality || 'high'; this.applyQuality(this.qualityReq); this.bgKey = null; this.kit = this.getKit(this.set, this.scheme);
+    this.ready = (async () => { await this.buildBoard(); await this.setBackground(init.bg || 'wood'); await this.ensureKit(); await this.precompile(); this.live = true; })();
     this.bindInput(); this.last = performance.now();
     new ResizeObserver(() => this.resize()).observe(canvas.parentElement || canvas); this.resize();
     this.resetCamera('white', true);
-    const loop = now => { requestAnimationFrame(loop); if (!this.running) { this.last = now; return; } const dt = Math.min(this.maxDt, (now - this.last) / 1000); this.last = now; this.update(dt); this.renderer.render(this.scene, this.camera); };
+    const loop = now => { requestAnimationFrame(loop); if (!this.running || !this.live) { this.last = now; return; } const dt = Math.min(this.maxDt, (now - this.last) / 1000); this.last = now; this.update(dt); this.renderer.render(this.scene, this.camera); };
     requestAnimationFrame(loop);
   }
 
   /* ---------- setup ---------- */
   applyQuality(q) {
     this.autoQ = q === 'auto';
-    if (q === 'auto') q = (Math.min(screen.width, screen.height) * (window.devicePixelRatio || 1) > 1000 && (navigator.hardwareConcurrency || 4) >= 6) ? 'high' : 'medium';
+    if (q === 'auto') q = 'medium';   // safe start; the governor steps down to Low if frames are slow
     this.quality = q; const Q = QUALITY[q];
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, Q.dpr)); this.renderer.shadowMap.enabled = Q.shadows; this.sun.castShadow = Q.shadows;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, Q.dpr)); this.renderer.shadowMap.enabled = Q.shadows; if (this._soft !== Q.soft) { this._soft = Q.soft; this.renderer.shadowMap.type = Q.soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap; this._shadowOn = null; } this.sun.castShadow = Q.shadows;
     if (this.sun.shadow.mapSize.x !== Q.shadow) { this.sun.shadow.mapSize.set(Q.shadow, Q.shadow); if (this.sun.shadow.map) { this.sun.shadow.map.dispose(); this.sun.shadow.map = null; } }
-    this.scene.traverse(o => { if (o.material) o.material.needsUpdate = true; });
+    if (this._shadowOn !== Q.shadows) { this._shadowOn = Q.shadows; this.scene.traverse(o => { if (o.material) o.material.needsUpdate = true; }); }
     this.resize();
   }
   resize() {
@@ -90,46 +95,76 @@ export class ChessScene {
     if (!this._fitted) { this._fitted = true; this.setRadius(this.fitDist); }
   }
   setRadius(r) { const o = this.camera.position.clone().sub(this.controls.target).setLength(r); this.camera.position.copy(this.controls.target).add(o); }
-  buildMaterials() {
-    for (const k in this.tpl) this.tpl[k].root.traverse(o => { if (o.geometry) o.geometry.dispose(); }); this.tpl = {};
-    if (this.mats) for (const m of this.mats) for (const k in m) m[k].dispose();
-    const sch = SCHEMES[this.scheme] || SCHEMES.ivory; this.mats = [makeMaterials(sch, 0), makeMaterials(sch, 1)];
+  /* ---------- piece kits: materials + geometry templates, cached per (set, colour scheme) so switching back is instant ---------- */
+  getKit(set, scheme) {
+    const k = set + '|' + scheme; if (this.kits[k]) return this.kits[k];
+    const sch = SCHEMES[scheme] || SCHEMES.ivory; return this.kits[k] = { set, mats: [makeMaterials(sch, 0), makeMaterials(sch, 1)], tpl: {}, full: false };
   }
-  buildBoard() {
-    const g = this.boardGroup; while (g.children.length) { const o = g.children.pop(); o.geometry && o.geometry.dispose(); }
-    if (this.texs) for (const k of ['squares', 'frame', 'table']) this.texs[k].dispose();
-    const T = this.texs = makeBoardTextures(this.boardKey, this.renderer, this.custom), th = T.theme;
+  /** compile every shader program in parallel on the GPU process so the first frame never stalls the UI */
+  async precompile() {
+    const sc = this.scene; const tmp = [];
+    for (const k of ['p', 'n', 'b', 'r', 'q', 'k']) for (const c of [0, 1]) { const m = this.spawn(k, c, c ? 8 + 'pnbrqk'.indexOf(k) : 48 + 'pnbrqk'.indexOf(k)); tmp.push(m); }
+    try { if (this.renderer.compileAsync) await this.renderer.compileAsync(sc, this.camera); else this.renderer.compile(sc, this.camera); } catch (e) { /* ignore */ }
+    this.clearPieces();
+  }
+  async ensureKit(set = this.set, scheme = this.scheme) {
+    const kit = this.getKit(set, scheme); if (kit.full) return kit;
+    for (const c of [0, 1]) for (const t of 'pnbrqk') { const key = t + c; if (!kit.tpl[key]) { kit.tpl[key] = buildPiece(t, kit.set, kit.mats[c]); await sleep0(); } }
+    kit.full = true; return kit;
+  }
+  async rebuildPieces() {
+    const tok = ++this.pieceTok, want = this.getKit(this.set, this.scheme); await this.ensureKit(this.set, this.scheme);
+    if (tok !== this.pieceTok) return;
+    this.kit = want; this.labelCache = {}; this.updateLegend();
+    const lay = [...this.pieces.values()].map(p => ({ type: p.type, color: p.color, sq: p.sq })); this.clearPieces(); for (const l of lay) this.spawn(l.type, l.color, l.sq);
+  }
+  async buildBoard() {
+    const tok = ++this.boardTok, key = this.boardKey, custom = this.custom;
+    const T = await makeBoardTextures(key, this.renderer, custom); if (tok !== this.boardTok) return;
+    const g = this.boardGroup; while (g.children.length) { const o = g.children.pop(); o.geometry && o.geometry.dispose(); if (o.material) for (const m of [].concat(o.material)) m.dispose(); }
+    this.texs = T; const th = T.theme;
     const frameTop = new THREE.MeshStandardMaterial({ map: T.frame, roughness: 0.55, metalness: 0.05, envMapIntensity: 0.5 });
     const side = new THREE.MeshStandardMaterial({ color: th.frame, roughness: 0.6 });
     const slab = new THREE.Mesh(new RoundedBoxGeometry(11, 0.55, 11, 4, 0.12), [side, side, frameTop, side, side, side]);
     slab.position.y = -0.275; slab.receiveShadow = true; slab.castShadow = true; g.add(slab);
     const sq = new THREE.Mesh(new THREE.PlaneGeometry(8, 8), new THREE.MeshStandardMaterial({ map: T.squares, roughness: th.type === 'marble' || th.type === 'glass' ? 0.22 : 0.5, metalness: 0, envMapIntensity: 0.6 }));
     sq.rotation.x = -Math.PI / 2; sq.position.y = 0.002; sq.receiveShadow = true; g.add(sq);
-    this.legendMesh = new THREE.Mesh(new THREE.PlaneGeometry(11, 11), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, toneMapped: false, color: 0xf2f2f2 }));
-    this.legendMesh.rotation.x = -Math.PI / 2; this.legendMesh.position.y = 0.004; this.legendMesh.renderOrder = 1; g.add(this.legendMesh); this.legendSet = null; this.updateLegend();
+    const lm = this.legendMesh = new THREE.Mesh(new THREE.PlaneGeometry(11, 11), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, toneMapped: false, color: 0xf2f2f2, map: this.legendTex || null }));
+    lm.rotation.x = -Math.PI / 2; lm.position.y = 0.004; lm.renderOrder = 1; g.add(lm); this.updateLegend();
     const trim = new THREE.MeshStandardMaterial({ color: th.trim, metalness: 0.9, roughness: 0.3, envMapIntensity: 1.0 });
     for (const [w, d, x, z] of [[8.16, 0.08, 0, -4.04], [8.16, 0.08, 0, 4.04], [0.08, 8.16, -4.04, 0], [0.08, 8.16, 4.04, 0]]) { const b = new THREE.Mesh(new THREE.BoxGeometry(w, 0.07, d), trim); b.position.set(x, 0.03, z); b.receiveShadow = true; g.add(b); }
   }
-  setStyle({ board, pcolor, set, quality, speed, cinema, labels, bg, custom }) {
-    if (custom) { const j = JSON.stringify(custom); if (j !== this.customJson) { this.customJson = j; this.custom = custom; if ((board || this.boardKey) === 'custom') { this.boardKey = 'custom'; this.buildBoard(); } } }
-    if (bg && bg !== this.bgKey) this.setBackground(bg);
+  /** apply any subset of style options; heavy parts are async (sliced) so the UI never freezes */
+  async setStyle({ board, pcolor, set, quality, speed, cinema, labels, bg, custom }) {
+    await this.ready;
+    const jobs = []; let boardChanged = false;
     if (speed !== undefined) this.speed = speed;
-    if (labels !== undefined && labels !== this.labels) { this.labels = labels; for (const p of this.all) this.addLabel(p); this.updateLegend(); }
     if (cinema !== undefined) this.cine = cinema;
-    if (quality && quality !== this.quality) this.applyQuality(quality);
-    let rebuildPieces = false;
-    if (board && board !== this.boardKey) { this.boardKey = board; this.buildBoard(); }
-    if ((pcolor && pcolor !== this.scheme) || (set && set !== this.set)) { if (pcolor) this.scheme = pcolor; if (set) this.set = set; this.buildMaterials(); rebuildPieces = true; }
-    if (rebuildPieces) { this.labelCache = {}; this.updateLegend(); const lay = [...this.pieces.values()].map(p => ({ type: p.type, color: p.color, sq: p.sq })); this.clearPieces(); for (const l of lay) this.spawn(l.type, l.color, l.sq); }
+    if (labels !== undefined && labels !== this.labels) { this.labels = labels; for (const p of this.all) this.addLabel(p); this.updateLegend(); }
+    if (quality && quality !== this.qualityReq) { this.qualityReq = quality; this.applyQuality(quality); }
+    if (custom) { const j = JSON.stringify(custom); if (j !== this.customJson) { this.customJson = j; this.custom = custom; if ((board || this.boardKey) === 'custom') boardChanged = true; } }
+    if (board && board !== this.boardKey) { this.boardKey = board; boardChanged = true; }
+    if (boardChanged) jobs.push(this.buildBoard());
+    if (bg && bg !== this.bgKey) jobs.push(this.setBackground(bg));
+    if ((pcolor && pcolor !== this.scheme) || (set && set !== this.set)) { if (pcolor) this.scheme = pcolor; if (set) this.set = set; jobs.push(this.rebuildPieces()); }
+    await Promise.all(jobs);
+  }
+  /** pre-build the alternatives a player is likely to pick next, a little at a time while idle */
+  async prewarm({ boards = [], bgs = [], sets = [] } = {}) {
+    await this.ready;
+    const idle = () => new Promise(r => setTimeout(r, 120));
+    for (const b of boards) { if (b !== 'custom') await makeBoardTextures(b, this.renderer); await idle(); }
+    for (const k of bgs) { const L = BG_LOOK[k]; if (L) await makeTableTexture(L.table, this.renderer); await idle(); }
+    for (const st of sets) { await this.ensureKit(st, this.scheme); await idle(); }
   }
 
   /* ---------- backgrounds (sky, floor, lighting, ambient effects) ---------- */
-  setBackground(key) {
-    const L = BG_LOOK[key] || BG_LOOK.wood; this.bgKey = key; const sc = this.scene;
+  async setBackground(key) {
+    const L = BG_LOOK[key] || BG_LOOK.wood; const tok = ++this.bgTok; const tex = await makeTableTexture(L.table, this.renderer); if (tok !== this.bgTok) return; this.bgKey = key; const sc = this.scene;
     if (sc.background && sc.background.isTexture) sc.background.dispose(); sc.background = skyTexture([L.sky[0], L.sky[1], L.sky[1]]);
     sc.fog.color.setHex(L.fog); sc.fog.near = L.near; sc.fog.far = L.far;
-    if (this.tableMesh) { this.scene.remove(this.tableMesh); this.tableMesh.material.map.dispose(); this.tableMesh.material.dispose(); this.tableMesh.geometry.dispose(); }
-    const m = new THREE.MeshStandardMaterial({ map: makeTableTexture(L.table, this.renderer), roughness: L.tRough, metalness: L.tMetal, envMapIntensity: L.tEnv });
+    if (this.tableMesh) { this.scene.remove(this.tableMesh); this.tableMesh.material.dispose(); this.tableMesh.geometry.dispose(); }
+    const m = new THREE.MeshStandardMaterial({ map: tex, roughness: L.tRough, metalness: L.tMetal, envMapIntensity: L.tEnv });
     this.tableMesh = new THREE.Mesh(new THREE.PlaneGeometry(120, 120), m); this.tableMesh.rotation.x = -Math.PI / 2; this.tableMesh.position.y = -0.56; this.tableMesh.receiveShadow = true; this.scene.add(this.tableMesh);
     this.sun.color.setHex(L.sun); this.sun.intensity = L.sunI; this.warm.color.setHex(L.warm); this.warm.intensity = L.warmI; this.fill.color.setHex(L.fillC); this.fill.intensity = L.fillI;
     this.hemi.color.setHex(L.hemiS); this.hemi.groundColor.setHex(L.hemiG); this.hemi.intensity = L.hemiI; sc.environmentIntensity = L.env; this.renderer.toneMappingExposure = L.exp;
@@ -171,8 +206,8 @@ export class ChessScene {
   loadPosition(b) { this.clearPieces(); for (let sq = 0; sq < 64; sq++) { const p = b[sq]; if (p) this.spawn(TYPE_CH[p & 7], p >> 3, sq); } this.clearMarks(); }
   at(sq) { return this.pieces.get(sq); }
   spawn(type, color, sq, scale = 1) {
-    const key = type + color; let tpl = this.tpl[key];
-    if (!tpl) tpl = this.tpl[key] = buildPiece(type, this.set, this.mats[color]);
+    const key = type + color, kit = this.kit; let tpl = kit.tpl[key];
+    if (!tpl) tpl = kit.tpl[key] = buildPiece(type, kit.set, kit.mats[color]);
     const root = new THREE.Group(), tilt = new THREE.Group(), content = tpl.root.clone(true);
     root.rotation.order = 'YXZ'; tilt.rotation.order = 'YXZ'; tilt.add(content); root.add(tilt);
     const legs = []; content.traverse(o => { if (o.userData.leg) legs.push(o); });
@@ -186,13 +221,15 @@ export class ChessScene {
   }
   updateLegend() {
     if (!this.legendMesh) return; const on = this.labels === 'border'; this.legendMesh.visible = on;
-    if (on && this.legendSet !== this.set) { if (this.legendMesh.material.map) this.legendMesh.material.map.dispose(); this.legendMesh.material.map = makeLegendTexture(this.set); this.legendMesh.material.needsUpdate = true; this.legendSet = this.set; }
+    if (on && this.legendSet !== this.set) { if (this.legendTex) this.legendTex.dispose(); this.legendTex = makeLegendTexture(this.set); this.legendMesh.material.map = this.legendTex; this.legendMesh.material.needsUpdate = true; this.legendSet = this.set; }
+    else if (on && this.legendMesh.material.map !== this.legendTex) { this.legendMesh.material.map = this.legendTex; this.legendMesh.material.needsUpdate = true; }
   }
-  /** glow on the border icon of the piece type you just selected */
+  /** glow on every border icon of the piece type you just selected (rooks a+h, knights b+g, ...) */
   legendFocus(type, color) {
-    if (!this.legendGlow) { this.legendGlow = this.quad(0xffffff, 0.9, 1.25, this.glowGold); this.legendGlow.renderOrder = 3; }
-    if (!type || this.labels !== 'border') { this.legendGlow.visible = false; return; }
-    const i = ['k', 'q', 'r', 'b', 'n', 'p'].indexOf(type); this.legendGlow.position.set((i - 2.5) * 1.3, 0.008, color === 0 ? 5.05 : -5.05); this.legendGlow.visible = true;
+    if (!this.legendGlows) this.legendGlows = [0, 1].map(() => { const q = this.quad(0xffffff, 0.9, 1.15, this.glowGold); q.renderOrder = 3; q.visible = false; return q; });
+    for (const q of this.legendGlows) q.visible = false;
+    if (!type || this.labels !== 'border') return;
+    let n = 0; LEGEND_ORDER.forEach((t, f) => { if (t === type && n < 2) { const q = this.legendGlows[n++]; q.position.set(f - 3.5, 0.008, color === 0 ? 5.05 : -5.05); q.visible = true; } });
   }
   /* floating badge above each piece: what it is + which team (ivory = White, dark = Black, gold/red border) */
   labelTexture(type, color) {
@@ -310,11 +347,12 @@ export class ChessScene {
   wait(sec) { return this.tween(sec, () => {}, E.lin); }
   /** adaptive graphics: if the device can't keep ~30fps, step quality down automatically (only when quality = Auto) */
   govern(dt) {
-    if (!this.autoQ || this.noAdapt || document.hidden || this.menuSpin) return;
+    if (!this.autoQ || this.noAdapt || document.hidden) return;
+    if (this.warmup === undefined) this.warmup = 45; if (this.warmup > 0) { this.warmup--; return; }   // ignore the first frames (shader warm-up)
     this.acc += dt; this.frames++;
-    if (this.frames >= 150) {
+    if (this.frames >= 60) {
       const avg = this.acc / this.frames; this.acc = 0; this.frames = 0;
-      if (avg > 0.036 && this.quality !== 'low') { const next = this.quality === 'high' ? 'medium' : 'low'; const keep = this.autoQ; this.applyQuality(next); this.autoQ = keep; if (this.onQuality) this.onQuality(next); }
+      if (avg > 0.030 && this.quality !== 'low') { const next = this.quality === 'high' ? 'medium' : 'low'; const keep = this.autoQ; this.applyQuality(next); this.autoQ = keep; if (this.onQuality) this.onQuality(next); }
     }
   }
   update(dt) {

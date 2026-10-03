@@ -13,7 +13,7 @@ Every piece looks like what it is — and **moves like it**:
 Prefer tournament pieces? Settings → *Piece style* → **Classic Staunton** (carved horse-head knight, crenellated rook, mitre bishop).
 
 ## Always know who is who
-- **Piece icons on the board's border panel** – White's set (🐴 🐘 🐪 ♛ ♚ ♟, ivory with a gold ring) runs along the bottom edge, Black's set (dark with a red ring) along the top edge, upside-down so Black reads it from their side. Tap a piece and its icon on the border **glows**. Prefer them floating above the pieces, or off? Settings → *Piece icons*
+- **Piece icons on the board's border panel** – White's set (🐴 🐘 🐪 ♛ ♚ ♟, ivory with a gold ring) sits along the bottom edge in the exact start-position order (Elephant Horse Camel Queen King Camel Horse Elephant), each icon directly behind its own file; Black's set (dark with a red ring) mirrors it along the top edge, upside-down so Black reads it from their side. Tap a piece and its icon on the border **glows**. Prefer them floating above the pieces, or off? Settings → *Piece icons*
 - **Team rings** on every base: gold = White, red = Black
 - **Turn banner** under the top bar: *"Your move · White"*, *"Computer's move · Black"*, *"⚠ CHECK"*
 - **Name card** when you tap a piece: *"🐴 Horse (Knight) · White – leaps in an L-shape…"*
@@ -31,7 +31,7 @@ Wooden Table · Royal Palace (marble tiles, candle glow, floating gold dust) · 
 - **True 3D** – drag to rotate the board, pinch to zoom, procedural wood / black marble / emerald felt / sapphire boards, real shadows & reflections
 - **Complete chess rules** – castling, en passant, promotion, check / checkmate / stalemate, 50-move, threefold repetition, insufficient material. The move generator is verified with **perft** against the published reference counts
 - **Computer opponent**, 6 levels (Beginner → Master) running in a Web Worker (no stutter)
-- **Pass & Play** with an auto-turning board, optional clocks (5 / 10 / 15+10)
+- **Pass & Play** with an auto-turning board **or a fixed board for two people sitting face to face** (choose in the setup popup or with the 🔒/🔄 button in the game; Black's bar, name cards and promotion dialog flip to face them), optional clocks (5 / 10 / 15+10)
 - **Mate-in-1/2/3 puzzles** (105 engine-verified, unique solutions) + a **daily puzzle**
 - Undo, hints, move list, captured pieces, last-move & check highlights, legal-move dots, save & resume
 - Rating that changes with every game, coins, daily rewards, shop (boards, piece colours)
@@ -44,6 +44,9 @@ Wooden Table · Royal Palace (marble tiles, candle glow, floating gold dust) · 
 
 > ⚠️ The ₹10 lakh/month goal depends on daily players × revenue per player (hyper-casual/board games in India are
 > roughly ₹1–4 per daily user), i.e. ~10k–30k+ daily users. That needs marketing and live-ops on top of the game.
+
+## Performance
+Startup and settings changes never block the UI: textures are painted in small slices and cached, piece sets are built once per style, shaders are compiled in parallel (`compileAsync`) behind the loading screen, and *Auto* graphics starts at Medium and steps down to Low if frames are slow. Shop and Settings are scrolling sheets that keep their position.
 
 ## Run / test
 ```bash
