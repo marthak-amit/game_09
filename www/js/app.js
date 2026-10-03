@@ -415,6 +415,7 @@ $('#btnContinue').onclick = () => { Sfx.init(); Sfx.click(); const g = Save.d.ga
 
 
 /* ---------- online play (Firebase or the local demo backend – see online.js) ---------- */
+const FB_ON = false;   // set true once the Facebook app id/token are configured (see ONLINE_SETUP.md)
 const ON = { be: null, user: null, code: null, unsub: null, tc: 'none', opp: null, room: null, searching: false, reelT: null };
 const avHtml = u => u && u.photo ? `<img src="${esc(u.photo)}" alt="" referrerpolicy="no-referrer">` : avatarFor(u ? u.uid || u.name : '?');
 function onlineTeardown() {
@@ -447,7 +448,7 @@ function renderOnline() {
    <div class="joinrow"><input class="code" data-code maxlength="6" placeholder="ENTER CODE" autocapitalize="characters" autocomplete="off" spellcheck="false"><button class="btn gold" data-act="onJoin">Join</button></div>
    <div class="sec">Account</div>
    ${u.guest ? `<p class="fine" style="margin:0 0 10px;text-align:left">You're playing as a guest. Sign in to keep your name and rating on any device.</p>
-     <button class="authbtn g" data-act="onSign" data-a="google"><i>G</i>Continue with Google</button><button class="authbtn f" data-act="onSign" data-a="facebook"><i>f</i>Continue with Facebook</button>`
+     <button class="authbtn g" data-act="onSign" data-a="google"><i>G</i>Continue with Google</button>${FB_ON ? '<button class="authbtn f" data-act="onSign" data-a="facebook"><i>f</i>Continue with Facebook</button>' : ''}`
    : `<button class="btn dark" style="width:100%" data-act="onSignOut">Sign out</button>`}
   </div>`);
 }
