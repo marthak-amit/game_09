@@ -36,3 +36,14 @@ if (process.env.FACEBOOK_APP_ID) {
     fs.writeFileSync(p, m); console.log('Manifest: Facebook login configured');
   }
 }
+
+/* ---- Fixed debug keystore, so the SHA-1 registered in Firebase / Facebook stays the same on every CI build ---- */
+const gp = 'android/app/build.gradle';
+if (fs.existsSync(gp) && fs.existsSync('keystore/royalchess-debug.keystore')) {
+  let g = fs.readFileSync(gp, 'utf8');
+  if (!g.includes('royalchess-debug.keystore')) {
+    const ks = require('path').resolve('keystore/royalchess-debug.keystore').replace(/\\/g, '/');
+    g = g.replace(/android\s*\{/, `android {\n    signingConfigs {\n        debug {\n            storeFile file('${ks}')\n            storePassword 'android'\n            keyAlias 'androiddebugkey'\n            keyPassword 'android'\n        }\n    }`);
+    fs.writeFileSync(gp, g); console.log('Debug signing: fixed keystore');
+  }
+}
