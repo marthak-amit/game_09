@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { buildPiece, makeMaterials, SCHEMES } from './pieces.js';
-import { makeBoardTextures, makeTableTexture, makeLegendTexture, LEGEND_ORDER, skyTexture, moonTexture, glowTexture, softDot } from './textures.js';
+import { makeBoardTextures, makeTableTexture, makeLegendIcons, LEGEND_ORDER, skyTexture, moonTexture, glowTexture, softDot } from './textures.js';
 import { Sfx } from './audio.js';
 
 const TYPE_CH = ' pnbrqk';
@@ -19,7 +19,7 @@ const E = {
 };
 const QUALITY = {
   high: { shadow: 2048, dpr: 2, shadows: true, soft: true },
-  medium: { shadow: 1024, dpr: 1.25, shadows: true, soft: false },
+  medium: { shadow: 1024, dpr: 1.5, shadows: true, soft: false },
   low: { shadow: 512, dpr: 1, shadows: false, soft: false }
 };
 
@@ -41,7 +41,7 @@ export class ChessScene {
     this.canvas = canvas; this.pieces = new Map(); this.tweens = []; this.speed = 1; this.t = 0; this.onPick = null;
     this.all = new Set(); this.set = 'royal'; this.scheme = 'ivory'; this.boardKey = 'wood'; this.quality = 'high'; this.kits = {}; this.kit = null; this.boardTok = 0; this.bgTok = 0; this.pieceTok = 0; this.qualityReq = null;
     this.targets = []; this.hl = {}; this.custom = null; this.customJson = ''; this.cine = true; this.labels = 'border'; this.labelCache = {}; this.frames = 0; this.acc = 0; this.noAdapt = new URLSearchParams(location.search).has('fast'); this.shake = 0; this.maxDt = new URLSearchParams(location.search).has('fast') ? 0.4 : 0.05; this.running = true; this.menuSpin = false; this.camTween = null;
-    const r = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: (window.devicePixelRatio || 1) < 2, powerPreference: 'high-performance' });
+    const r = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     r.shadowMap.enabled = true; r.shadowMap.type = THREE.PCFSoftShadowMap; r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.0;
     const sc = this.scene = new THREE.Scene(); sc.background = new THREE.Color(0x120c08); sc.fog = new THREE.Fog(0x120c08, 26, 62);
     const pm = new THREE.PMREMGenerator(r); sc.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; sc.environmentIntensity = 0.45; pm.dispose();
@@ -64,7 +64,7 @@ export class ChessScene {
     if (init.set) this.set = init.set; if (init.pcolor) this.scheme = init.pcolor; if (init.board) this.boardKey = init.board; if (init.custom) { this.custom = init.custom; this.customJson = JSON.stringify(init.custom); }
     if (init.labels) this.labels = init.labels; if (init.cinema !== undefined) this.cine = init.cinema; if (init.speed !== undefined) this.speed = init.speed;
     this.qualityReq = init.quality || 'high'; this.applyQuality(this.qualityReq); this.bgKey = null; this.kit = this.getKit(this.set, this.scheme);
-    this.ready = (async () => { await this.buildBoard(); await this.setBackground(init.bg || 'wood'); await this.ensureKit(); this.legendKey = this.set + '|' + this.scheme; await this.buildLegend(this.legendKey); await this.precompile(); this.live = true; })();
+    this.ready = (async () => { await this.buildBoard(); await this.setBackground(init.bg || 'wood'); await this.ensureKit(); this.updateLegend(); await this.precompile(); this.live = true; })();
     this.bindInput(); this.last = performance.now();
     new ResizeObserver(() => this.resize()).observe(canvas.parentElement || canvas); this.resize();
     this.resetCamera('white', true);
@@ -147,8 +147,13 @@ export class ChessScene {
     slab.position.y = -0.275; slab.receiveShadow = true; slab.castShadow = true; g.add(slab);
     const sq = new THREE.Mesh(new THREE.PlaneGeometry(8, 8), new THREE.MeshStandardMaterial({ map: T.squares, roughness: th.type === 'marble' || th.type === 'glass' ? 0.22 : 0.5, metalness: 0, envMapIntensity: 0.6 }));
     sq.rotation.x = -Math.PI / 2; sq.position.y = 0.002; sq.receiveShadow = true; g.add(sq);
-    const lm = this.legendMesh = new THREE.Mesh(new THREE.PlaneGeometry(11, 11), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, toneMapped: false, color: 0xf2f2f2, map: this.legendTex || null }));
-    lm.rotation.x = -Math.PI / 2; lm.position.y = 0.004; lm.renderOrder = 1; g.add(lm); this.updateLegend();
+    const lm = this.legendMesh = new THREE.Group(); lm.position.y = 0.004; g.add(lm);
+    const qg = new THREE.PlaneGeometry(0.8, 0.8); qg.rotateX(-Math.PI / 2); this.legendSet = null;
+    for (const color of [0, 1]) LEGEND_ORDER.forEach((t, f) => {
+      const m = new THREE.Mesh(qg, new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, toneMapped: false }));
+      m.position.set(f - 3.5, 0, color === 0 ? 5.05 : -5.05); if (color === 1) m.rotation.y = Math.PI; m.renderOrder = 1; m.userData.key = color + t; lm.add(m);
+    });
+    this.updateLegend();
     const trim = new THREE.MeshStandardMaterial({ color: th.trim, metalness: 0.9, roughness: 0.3, envMapIntensity: 1.0 });
     for (const [w, d, x, z] of [[8.16, 0.08, 0, -4.04], [8.16, 0.08, 0, 4.04], [0.08, 8.16, -4.04, 0], [0.08, 8.16, 4.04, 0]]) { const b = new THREE.Mesh(new THREE.BoxGeometry(w, 0.07, d), trim); b.position.set(x, 0.03, z); b.receiveShadow = true; g.add(b); }
   }
@@ -239,37 +244,12 @@ export class ChessScene {
   }
   updateLegend() {
     if (!this.legendMesh) return; const on = this.labels === 'border'; this.legendMesh.visible = on;
-    if (!on || (!this.live && !this.legendTex)) return;
-    const key = this.set + '|' + this.scheme;
-    if (this.legendKey !== key) { this.legendKey = key; this.buildLegend(key); }
-    else if (this.legendTex && this.legendMesh.material.map !== this.legendTex) { this.legendMesh.material.map = this.legendTex; this.legendMesh.material.needsUpdate = true; }
-  }
-  /** the border icons are real renders of the 3D pieces (same models + colours as on the board) → always sharp */
-  async buildLegend(key) {
-    const [set, scheme] = key.split('|'), kit = await this.ensureKit(set, scheme); if (this.legendKey !== key) return;
-    const icons = this.renderIcons(kit), tex = makeLegendTexture(set, icons);
-    if (this.legendTex) this.legendTex.dispose(); this.legendTex = tex;
-    if (this.legendMesh) { this.legendMesh.material.map = tex; this.legendMesh.material.needsUpdate = true; }
-  }
-  renderIcons(kit) {
-    const R = 256, r = this.renderer, rt = new THREE.WebGLRenderTarget(R, R, { samples: 4, colorSpace: THREE.SRGBColorSpace });
-    const sc = new THREE.Scene(); sc.environment = this.scene.environment; sc.environmentIntensity = 0.8;
-    sc.add(new THREE.HemisphereLight(0xffffff, 0x8a7a66, 1.1)); const dl = new THREE.DirectionalLight(0xffffff, 2.4); dl.position.set(4, 6, 5); sc.add(dl);
-    const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 60), out = [{}, {}], buf = new Uint8Array(R * R * 4);
-    const pr = r.getRenderTarget(), cc = new THREE.Color(); r.getClearColor(cc); const ca = r.getClearAlpha(), sh = r.shadowMap.enabled; r.shadowMap.enabled = false;
-    for (const c of [0, 1]) for (const t of 'rnbqk') {
-      const key = t + c; const tpl = kit.tpl[key] || (kit.tpl[key] = buildPiece(t, kit.set, kit.mats[c]));
-      const m = tpl.root.clone(true); for (const nm of ['base', 'ring']) { const o = m.getObjectByName(nm); if (o) o.parent.remove(o); }
-      sc.add(m); const box = new THREE.Box3().setFromObject(m), ctr = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
-      const half = Math.max(size.y, size.z * 1.0, size.x) * 0.56; cam.left = -half; cam.right = half; cam.top = half; cam.bottom = -half; cam.updateProjectionMatrix();
-      cam.position.set(ctr.x + 12, ctr.y + 1.2, ctr.z); cam.lookAt(ctr);
-      r.setRenderTarget(rt); r.setClearColor(0x000000, 0); r.clear(); r.render(sc, cam);
-      r.readRenderTargetPixels(rt, 0, 0, R, R, buf);
-      const cv = document.createElement('canvas'); cv.width = cv.height = R; const cx = cv.getContext('2d'), id = cx.createImageData(R, R);
-      for (let y = 0; y < R; y++) id.data.set(buf.subarray((R - 1 - y) * R * 4, (R - y) * R * 4), y * R * 4);
-      cx.putImageData(id, 0, 0); out[c][t] = cv; sc.remove(m);
+    if (!on) return;
+    if (this.legendSet !== this.set) {   // (re)paint the 16 border medallions for the current piece set
+      if (this.legendTexs) for (const k in this.legendTexs) this.legendTexs[k].dispose();
+      this.legendTexs = makeLegendIcons(this.set); this.legendSet = this.set;
     }
-    r.setRenderTarget(pr); r.setClearColor(cc, ca); r.shadowMap.enabled = sh; rt.dispose(); return out;
+    for (const m of this.legendMesh.children) { const tx = this.legendTexs[m.userData.key]; if (m.material.map !== tx) { m.material.map = tx; m.material.needsUpdate = true; } }
   }
   /** glow on every border icon of the piece type you just selected (rooks a+h, knights b+g, ...) */
   legendFocus(type, color) {
