@@ -127,7 +127,7 @@ function askAI(payload) {
 
 /* ---------- screens ---------- */
 function showHome() {
-  onlineTeardown(); closeModal(); clearInterval(G.tick); G.mode = null; G.id++; G.thinking = false;
+  clearInterval(G.idleT); $('#idle').classList.add('hidden'); onlineTeardown(); closeModal(); clearInterval(G.tick); G.mode = null; G.id++; G.thinking = false;
   $('#hud').classList.add('hidden'); $('#home').classList.remove('hidden');
   const d = Save.d; $('#homeCoins b').textContent = d.coins; $('#homeRating b').textContent = d.rating;
   $('#btnContinue').classList.toggle('hidden', !d.game);
@@ -189,7 +189,7 @@ function setupBars() {
   }
   if (G.mode === 'online') {
     const o = ON.opp || { name: 'Opponent' }, me = G.human, tc = me ^ 1; G.bottomColor = me;
-    $('#nameBot').textContent = `${ON.user ? ON.user.name : 'You'} · ${me ? 'Black' : 'White'}`; $('#nameTop').textContent = `${o.name} · ${tc ? 'Black' : 'White'}`;
+    $('#nameBot').textContent = `${ON.user ? ON.user.name : 'You'} (${Save.d.rating}) · ${me ? 'Black' : 'White'}`; $('#nameTop').textContent = `${o.name} (${o.rating || 800}) · ${tc ? 'Black' : 'White'}`;
     paintAv('#avBot', me, me ? '♚\uFE0E' : '♔\uFE0E'); paintAv('#avTop', tc, avatarFor(o.uid || o.name));
     $('#btnUndo').classList.add('hidden'); $('#btnHint').classList.add('hidden'); return;
   }
@@ -224,6 +224,25 @@ function updateHud() {
     el.className = 'turn ' + (wh ? 'w' : 'b') + (chk ? ' chk' : ''); el.textContent = (chk ? '⚠ CHECK · ' : '') + txt; }
   $('#btnUndo').disabled = G.moves.length === 0 || G.busy || G.thinking || G.over;
   $('#btnHint').disabled = G.busy || G.thinking || G.over || (G.mode === 'ai' && G.board.turn !== G.human);
+}
+/* ---------- online: 2-minute move limit with 3 warnings (60 s, 30 s, 10 s left); then the other player wins ---------- */
+const IDLE_LIMIT = 120, IDLE_WARN = [60, 30, 10];
+function idleReset() {
+  clearInterval(G.idleT); if (G.mode !== 'online') { $('#idle').classList.add('hidden'); return; }
+  G.idleStart = performance.now(); G.idleWarned = 0; G.idleSec = -1; $('#idle').classList.remove('hidden', 'danger'); idleTick();
+  G.idleT = setInterval(idleTick, 200);
+}
+function idleTick() {
+  if (G.mode !== 'online' || G.over || !G.board) { clearInterval(G.idleT); $('#idle').classList.add('hidden'); return; }
+  const left = IDLE_LIMIT - (performance.now() - G.idleStart) / 1000, mine = G.board.turn === G.human, el = $('#idle');
+  el.classList.toggle('mine', mine); el.classList.toggle('danger', left <= 10);
+  $('#idleBar').style.width = Math.max(0, left / IDLE_LIMIT * 100) + '%';
+  const m = Math.max(0, Math.ceil(left)); $('#idleTxt').textContent = `${mine ? 'Your move' : "Opponent's move"} · ${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+  const dots = el.querySelectorAll('.dots i'); let n = 0; IDLE_WARN.forEach(w => { if (left <= w) n++; }); dots.forEach((d, i) => d.classList.toggle('on', i < n));
+  if (n > G.idleWarned) { G.idleWarned = n; if (mine) { Sfx.warn(); Sfx.buzz(60); toast(n === 3 ? '⚠ Final warning 3/3 – move now or you lose!' : `⏰ Warning ${n}/3 – move within ${IDLE_WARN[n - 1]} seconds or you lose`, 3200); } }
+  if (mine && left <= 10 && left > 0) { const sec = Math.ceil(left); if (sec !== G.idleSec) { G.idleSec = sec; Sfx.tick(sec); Sfx.buzz(20); } }
+  if (left <= 0 && mine) { endGame({ result: G.human ? '1-0' : '0-1', reason: 'inactivity' }); }
+  else if (left <= -6 && !mine) { endGame({ result: G.human ? '0-1' : '1-0', reason: 'opponent left' }); }   // 6 s grace for network delay
 }
 function startClock() {
   clearInterval(G.tick); if (!G.tc.base) return; let last = performance.now();
@@ -297,7 +316,7 @@ async function commit(m, remote) {
   if (st.over) { await endGame(st); return; }
   if (st.check) { Sfx.check(); Sfx.buzz(40); toast('Check!', 1300); }
   saveGame(); updateHud();
-  if (G.mode === 'online') pumpOnline();
+  if (G.mode === 'online') { idleReset(); pumpOnline(); }
   if (G.mode === 'pvp' && Save.d.autoRotate) scene.resetCamera(b.turn ? 'black' : 'white');
   if (G.mode === 'ai' && b.turn !== G.human) aiMove();
 }
@@ -373,6 +392,7 @@ ACT.resignYes = () => { closeModal(); const loser = (G.mode === 'ai' || G.mode =
 async function endGame(st) {
   if (G.over) return; G.over = true; G.busy = false; G.thinking = false; clearInterval(G.tick); updateHud();
   Track.event('game_end', { mode: G.mode, result: st.result, reason: st.reason });
+  clearInterval(G.idleT); $('#idle').classList.add('hidden');
   const online = G.mode === 'online'; if (online && !st.remote && ON.be) ON.be.finish(ON.code, st.result, st.reason).catch(() => {});
   const ai = G.mode === 'ai', white = st.result === '1-0', black = st.result === '0-1';
   const outcome = st.result === '1/2-1/2' ? 'draw' : ((white && G.human === 0) || (black && G.human === 1)) ? (ai ? 'win' : 'win') : 'loss';
@@ -446,7 +466,7 @@ $('#btnContinue').onclick = () => { Sfx.init(); Sfx.click(); const g = Save.d.ga
 
 /* ---------- online play (Firebase or the local demo backend – see online.js) ---------- */
 const FB_ON = false;   // set true once the Facebook app id/token are configured (see ONLINE_SETUP.md)
-const ON = { be: null, user: null, code: null, unsub: null, tc: 'none', opp: null, room: null, searching: false, reelT: null };
+const ON = { be: null, user: null, code: null, unsub: null, tc: '10', vi: -1, opp: null, room: null, searching: false, reelT: null };
 const avHtml = u => u && u.photo ? `<img src="${esc(u.photo)}" alt="" referrerpolicy="no-referrer">` : avatarFor(u ? u.uid || u.name : '?');
 function onlineTeardown() {
   if (ON.unsub) { ON.unsub(); ON.unsub = null; } if (ON.be && ON.searching) ON.be.cancelQuick(); ON.searching = false; clearTimeout(ON.reelT);
@@ -476,34 +496,44 @@ function venueProgress(v) {
 }
 const venueOpen = v => venueProgress(v).every(x => x.have >= x.need);
 function venueCard(v) {
-  const open = venueOpen(v), coins = Save.d.coins, poor = open && v.fee > coins, rows = open ? [] : venueProgress(v);
-  const [c1, c2] = v.art;
-  return `<div class="venue ${open ? '' : 'locked'}" data-act="${open ? (poor ? 'venuePoor' : 'onVenue') : 'venueLocked'}" data-a="${v.id}" role="button">
-    <div class="vart" style="background:linear-gradient(135deg,${c1},${c2})"><span>${v.icon}</span>${open ? '' : '<em class="lock">🔒</em>'}</div>
-    <div class="vinfo"><b>${v.name}</b><small>${open ? v.blurb : 'Locked'}</small>
-      ${open ? `<div class="vfee"><span>Entry <b>${v.fee ? '🪙 ' + v.fee : 'Free'}</b></span><span>Prize <b>${v.fee ? '🪙 ' + v.fee * 2 : '—'}</b></span></div>`
-             : `<div class="vreq">${rows.map(x => `<div class="${x.have >= x.need ? 'ok' : ''}"><span>${x.have >= x.need ? '✓' : '○'} ${x.t}</span><i><u style="width:${Math.min(100, Math.round(x.have * 100 / x.need))}%"></u></i><em>${Math.min(x.have, x.need)}/${x.need}</em></div>`).join('')}</div>`}
+  const open = venueOpen(v), coins = Save.d.coins, poor = open && v.fee > coins, rows = open ? [] : venueProgress(v), [c1, c2] = v.art;
+  return `<div class="vc ${open ? '' : 'locked'}" data-act="${open ? (poor ? 'venuePoor' : 'onVenue') : 'venueLocked'}" data-a="${v.id}" role="button" style="--c1:${c1};--c2:${c2}">
+    <div class="vc-art"><span>${v.icon}</span><div class="vc-name">${v.name}</div></div>
+    <div class="vc-body">
+      ${open ? `<div class="vc-row"><div><small>Entry fee</small><b>${v.fee ? '🪙 ' + v.fee : 'FREE'}</b></div><div><small>Prize</small><b class="pz">${v.fee ? '🪙 ' + v.fee * 2 : '—'}</b></div></div>
+        <div class="vc-blurb">${v.blurb}</div><button class="vgo2 ${poor ? 'poor' : ''}" tabindex="-1">${poor ? 'Need 🪙 ' + v.fee : 'PLAY'}</button>`
+      : `<div class="vc-lock">🔒 Locked</div><div class="vreq">${rows.map(x => `<div class="${x.have >= x.need ? 'ok' : ''}"><span>${x.have >= x.need ? '✓' : '○'} ${x.t}</span><i><u style="width:${Math.min(100, Math.round(x.have * 100 / x.need))}%"></u></i><em>${Math.min(x.have, x.need)}/${x.need}</em></div>`).join('')}</div><div class="vc-row small"><div><small>Entry fee</small><b>🪙 ${v.fee}</b></div><div><small>Prize</small><b class="pz">🪙 ${v.fee * 2}</b></div></div>`}
     </div>
-    ${open ? `<button class="vgo ${poor ? 'poor' : ''}" tabindex="-1">${poor ? 'Need 🪙' : 'Play'}</button>` : ''}
   </div>`;
 }
 function renderOnline() {
   const u = ON.user, demo = ON.be.name === 'demo', prov = { guest: 'Guest account', google: 'Signed in with Google', facebook: 'Signed in with Facebook' }[u.provider] || 'Signed in';
-  const tcs = TIMES.slice(0, 3), unlocked = VENUES.filter(venueOpen).length;
+  const unlocked = VENUES.filter(venueOpen).length;
   sheet(onHead('🎮 Play') + `<div class="sh-body">
    <div class="prof"><div class="pav">${avHtml(u)}</div><div class="grow"><input class="nm" data-nm value="${esc(u.name)}" maxlength="16" aria-label="Your name"><small>${prov} · ♔ ${Save.d.rating} · 🪙 ${Save.d.coins}</small></div></div>
    ${demo ? '<div class="banner gold"><div class="bi">🧪</div><div class="grow"><b>Demo mode</b><small>No Firebase set up yet – open this game in two browser tabs to try it.</small></div></div>' : ''}
-   <div class="sec">Time control</div><div class="seg">${tcs.map(t => `<button class="${ON.tc === t.id ? 'on' : ''}" data-act="onTc" data-a="${t.id}">${t.name}</button>`).join('')}</div>
    <div class="sec">Choose a location <span class="cnt">${unlocked}/${VENUES.length} unlocked</span></div>
-   <div class="venues">${VENUES.map(venueCard).join('')}</div>
-   <button class="bigact alt" data-act="friends" style="margin-top:12px"><i>👥</i><div><b>Play with a friend</b><small>Private room · optional coin stake</small></div></button>
+   <div class="vcar" id="vcar">${VENUES.map(venueCard).join('')}</div>
+   <div class="vdots" id="vdots">${VENUES.map((v, i) => `<i data-i="${i}"></i>`).join('')}</div>
+   <div class="rule10">⏱ Online games are 10 minutes each · move within 2 minutes or lose</div>
+   <div class="duo"><button data-act="friends"><i>👥</i><b>Play with a friend</b><small>Private room</small></button><button data-act="onToAI"><i>🤖</i><b>Vs computer</b><small>Practice offline</small></button></div>
    <div class="sec">Account</div>
    ${u.guest ? `<p class="fine" style="margin:0 0 10px;text-align:left">You're playing as a guest. Sign in to keep your name and rating on any device.</p>
      <button class="authbtn g" data-act="onSign" data-a="google"><i>G</i>Continue with Google</button>${FB_ON ? '<button class="authbtn f" data-act="onSign" data-a="facebook"><i>f</i>Continue with Facebook</button>' : ''}`
    : `<button class="btn dark" style="width:100%" data-act="onSignOut">Sign out</button>`}
   </div>`);
+  initCarousel();
 }
-ACT.venueLocked = id => { const v = VENUES.find(x => x.id === id), miss = venueProgress(v).filter(x => x.have < x.need); Sfx.bad && Sfx.bad(); const el = document.querySelector(`.venue[data-a="${id}"]`); if (el) { el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake'); } toast('🔒 ' + miss.map(x => x.t).join(' · '), 2800); };
+function initCarousel() {
+  const car = $('#vcar'); if (!car) return; const cards = [...car.children];
+  if (ON.vi < 0) { let best = 0; VENUES.forEach((v, i) => { if (venueOpen(v) && v.fee <= Save.d.coins) best = i; }); ON.vi = best; }
+  const go = (i, smooth) => { const c = cards[i]; if (c) car.scrollTo({ left: c.offsetLeft - (car.clientWidth - c.clientWidth) / 2, behavior: smooth ? 'smooth' : 'auto' }); };
+  const dots = () => [...$('#vdots').children].forEach((d, i) => d.classList.toggle('on', i === ON.vi));
+  go(ON.vi, false); dots();
+  let t; car.addEventListener('scroll', () => { clearTimeout(t); t = setTimeout(() => { const mid = car.scrollLeft + car.clientWidth / 2; let bi = 0, bd = 1e9; cards.forEach((c, i) => { const d = Math.abs(c.offsetLeft + c.clientWidth / 2 - mid); if (d < bd) { bd = d; bi = i; } }); ON.vi = bi; dots(); }, 60); }, { passive: true });
+  $('#vdots').onclick = e => { const d = e.target.closest('i'); if (d) { ON.vi = +d.dataset.i; go(ON.vi, true); dots(); } };
+}
+ACT.venueLocked = id => { const v = VENUES.find(x => x.id === id), miss = venueProgress(v).filter(x => x.have < x.need); Sfx.bad && Sfx.bad(); const el = document.querySelector(`.vc[data-a="${id}"]`); if (el) { el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake'); } toast('🔒 ' + miss.map(x => x.t).join(' · '), 2800); };
 ACT.venuePoor = id => { const v = VENUES.find(x => x.id === id); toast(`You need 🪙 ${v.fee} to play here`, 2200); shopTab = 'coins'; setTimeout(() => { if (!G.mode) showShop(); }, 700); };
 ACT.onVenue = id => { ON.venue = VENUES.find(x => x.id === id); Track.event('venue_select', { venue: id }); ACT.onQuick(); };
 ACT.onTc = id => { ON.tc = id; if (ON.view === 'friends') renderFriends(); else renderOnline(); };
@@ -520,7 +550,7 @@ $('#btnFriends').onclick = async () => { Sfx.init(); Sfx.click(); ON.view = 'fri
 ACT.friends = () => { ON.view = 'friends'; renderFriends(); };
 function renderFriends() {
   const coins = Save.d.coins, max = Math.min(coins, 5000) - (Math.min(coins, 5000) % 50); ON.bet = Math.max(0, Math.min(ON.bet, max));
-  const tcs = TIMES.slice(0, 3), chips = [0, 100, 250, 500, 1000], pct = max ? Math.round(ON.bet * 100 / max) : 0;
+  const chips = [0, 100, 250, 500, 1000], pct = max ? Math.round(ON.bet * 100 / max) : 0;
   sheet(onHead('👥 Play with a friend') + `<div class="sh-body">
    <div class="sec">Entry fee</div>
    <div class="stake">
@@ -535,8 +565,7 @@ function renderFriends() {
      <div class="pot ${ON.bet ? '' : 'off'}"><span class="trophy">🏆</span><div><small>Winner takes</small><b>${ON.bet ? '🪙 ' + ON.bet * 2 : 'bragging rights'}</b></div></div>
      ${coins < 50 ? '<button class="linkbtn" data-act="toShopCoins">Need coins? Get some in the shop →</button>' : ''}
    </div>
-   <div class="sec">Time control</div>
-   <div class="seg">${tcs.map(t => `<button class="${ON.tc === t.id ? 'on' : ''}" data-act="onTc" data-a="${t.id}">${t.name}</button>`).join('')}</div>
+   <div class="rule10" style="margin-top:12px">⏱ 10 minutes each · move within 2 minutes or lose</div>
    <button class="btn gold" style="width:100%;margin-top:14px;font-size:17px;padding:15px" data-act="onCreate">🔑 Create room${ON.bet ? ' · 🪙 ' + ON.bet : ''}</button>
    <div class="or"><span>or join a friend</span></div>
    <div class="joinrow"><input class="code" data-code maxlength="6" placeholder="ENTER CODE" autocapitalize="characters" autocomplete="off" spellcheck="false"><button class="btn gold" data-act="onJoin">Join</button></div>
@@ -646,7 +675,7 @@ function beginOnline(room) {
   const bet = room.bet || 0, bets = Save.d.bets || (Save.d.bets = {});
   if (bet && !bets[room.code]) { Save.d.coins = Math.max(0, Save.d.coins - bet); bets[room.code] = { bet, paid: false, t: Date.now() }; const ks = Object.keys(bets); if (ks.length > 30) delete bets[ks[0]]; Save.save(); }
   newGame({ mode: 'online', human: color, time: tc.id }, moves.length ? { moves, hints: 0, undos: 0, clocks: [tc.base, tc.base] } : null);
-  toast(`You play ${color ? 'Black' : 'White'} vs ${ON.opp.name}${bet ? ` · 🪙 ${bet * 2} pot` : ''}`, 3000); Track.event('online_game_start', { bet });
+  idleReset(); toast(`You play ${color ? 'Black' : 'White'} vs ${ON.opp.name}${bet ? ` · 🪙 ${bet * 2} pot` : ''}`, 3000); Track.event('online_game_start', { bet });
   ON.unsub = ON.be.watchRoom(room.code, r => { if (!r || G.mode !== 'online' || r.code !== ON.code) return; ON.room = r; pumpOnline(); });
 }
 async function sendOnlineMove(uci, len) {

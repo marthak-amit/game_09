@@ -43,6 +43,9 @@ export const Sfx = {
     o.connect(f); o2.connect(f); f.connect(g); g.connect(this.master); o.start(t); o2.start(t); lfo.start(t); o.stop(t + 1.05); o2.stop(t + 1.05); lfo.stop(t + 1.05);
     this.noise(0.9, 1800, 0.8, 0.07);
   },
+  warn() { this.tone(880, 0.16, 'square', 0.09); this.tone(660, 0.2, 'square', 0.09, 1, 0.18); this.tone(880, 0.16, 'square', 0.09, 1, 0.4); },
+  /** last 10 seconds: heartbeat + rising tick, one per second */
+  tick(secLeft) { const k = 10 - Math.max(0, Math.min(10, secLeft)); this.tone(70, 0.14, 'sine', 0.55, 0.6); this.tone(70, 0.12, 'sine', 0.4, 0.6, 0.16); this.tone(1000 + k * 90, 0.07, 'square', 0.07, 1, 0.02); },
   click() { this.tone(540, 0.05, 'triangle', 0.12); },
   select() { this.tone(660, 0.07, 'sine', 0.14); this.tone(880, 0.07, 'sine', 0.1, 1, 0.05); },
   bad() { this.tone(150, 0.16, 'square', 0.08, 0.6); },
