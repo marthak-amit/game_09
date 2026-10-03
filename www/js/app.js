@@ -2,7 +2,7 @@
 import { ChessScene } from './scene.js';
 import { Sfx } from './audio.js';
 import { Save } from './storage.js';
-import { CFG, BOARDS, BGS, PIECE_COLORS, TIMES } from './config.js';
+import { CFG, BOARDS, BGS, PIECE_COLORS, TIMES, VENUES } from './config.js';
 import { Ads, IAP, Native, bus, nativeLifecycle } from './ads.js';
 import { Track } from './track.js';
 import { FIREBASE_CONFIG } from './firebase-config.js';
@@ -386,6 +386,7 @@ async function endGame(st) {
     if (bt && !bt.paid) { bt.paid = true; const back = outcome === 'win' ? bt.bet * 2 : outcome === 'draw' ? bt.bet : 0; d.coins += back; net = back - bt.bet; }
     if (ON.be && ON.be.setRating) ON.be.setRating(d.rating).catch(() => {});
     G.onlineNet = net; Track.event('online_game_end', { outcome, bet: bt ? bt.bet : 0 });
+    const seen = d.venuesSeen || (d.venuesSeen = ['lounge', 'street']); G.newVenues = VENUES.filter(v => venueOpen(v) && !seen.includes(v.id)); for (const v of G.newVenues) seen.push(v.id);
     title = outcome === 'win' ? '🏆 You win!' : outcome === 'draw' ? 'Draw' : 'You lose'; sub = `${reason} · vs ${(ON.opp && ON.opp.name) || 'Opponent'}`; Sfx[outcome === 'win' ? 'win' : outcome === 'draw' ? 'draw' : 'lose']();
   }
   else if (!ai) { title = st.result === '1/2-1/2' ? 'Draw' : (white ? 'White wins!' : 'Black wins!'); sub = reason; Sfx[st.result === '1/2-1/2' ? 'draw' : 'win'](); }
@@ -400,7 +401,7 @@ async function endGame(st) {
   if (st.reason === 'checkmate') { const lk = G.board.kingSq[G.board.turn]; scene.kingFall(lk); }
   await sleep(st.reason === 'checkmate' ? 1500 : 700);
   G.lastOutcome = { coins, ai };
-  if (online) { const net = G.onlineNet || 0, bt = (Save.d.bets || {})[ON.code]; modal(`<h2>${title}</h2><p>${esc(sub)}</p><div class="stat"><span>Rating</span><span>${Save.d.rating} (${dr >= 0 ? '+' : ''}${dr})</span></div>${bt && bt.bet ? `<div class="stat"><span>Coins</span><span style="color:${net >= 0 ? '#9be2b4' : '#ff8a8a'}">${net >= 0 ? '+' : ''}${net} 🪙</span></div>` : ''}<div class="col"><button class="btn gold" data-act="onAgain">🎮 Play again</button><button class="btn dark" data-act="viewBoard">View board</button><button class="btn ghost" data-act="home">Home</button></div>`); $('#card').dataset.dismiss = '0'; return; }
+  if (online) { const net = G.onlineNet || 0, bt = (Save.d.bets || {})[ON.code]; modal(`<h2>${title}</h2><p>${esc(sub)}</p><div class="stat"><span>Rating</span><span>${Save.d.rating} (${dr >= 0 ? '+' : ''}${dr})</span></div>${(G.newVenues || []).map(v => `<div class="unlock">🔓 New location unlocked: <b>${v.icon} ${v.name}</b></div>`).join('')}${bt && bt.bet ? `<div class="stat"><span>Coins</span><span style="color:${net >= 0 ? '#9be2b4' : '#ff8a8a'}">${net >= 0 ? '+' : ''}${net} 🪙</span></div>` : ''}<div class="col"><button class="btn gold" data-act="onAgain">🎮 Play again</button><button class="btn dark" data-act="viewBoard">View board</button><button class="btn ghost" data-act="home">Home</button></div>`); $('#card').dataset.dismiss = '0'; return; }
   modal(`<h2>${title}</h2><p>${sub}${ai ? ` · vs ${E.LEVELS[G.level].name}` : ''}</p>
     ${ai ? `<div class="stat"><span>Rating</span><span>${Save.d.rating} (${dr >= 0 ? '+' : ''}${dr})</span></div><div class="stat"><span>Coins earned</span><span>+${coins} 🪙</span></div>` : ''}
     <div class="col"><button class="btn gold" data-act="rematch">Rematch</button>
@@ -464,22 +465,47 @@ async function showOnline() {
   if (!ok) { sheet(onHead('🎮 Play') + `<div class="sh-body"><div class="banner gold"><div class="bi">🛠</div><div class="grow"><b>Coming soon</b><small>Online play isn't switched on in this build yet. Meanwhile try Play vs Computer or Pass &amp; Play.</small></div></div></div>`); return; }
   ON.view === 'friends' ? renderFriends() : renderOnline();
 }
+/* ---------- locations (8-ball-pool style tables) ---------- */
+function venueProgress(v) {
+  const d = Save.d, o = d.stats.online || { games: 0, wins: 0 }, solved = Object.keys(d.puzzle.solved || {}).length, r = v.req, rows = [];
+  if (r.games) rows.push({ t: `Play ${r.games} online game${r.games > 1 ? 's' : ''}`, have: o.games, need: r.games });
+  if (r.wins) rows.push({ t: `Win ${r.wins} online games`, have: o.wins, need: r.wins });
+  if (r.rating) rows.push({ t: `Reach rating ${r.rating}`, have: d.rating, need: r.rating });
+  if (r.puzzles) rows.push({ t: `Solve ${r.puzzles} puzzles`, have: solved, need: r.puzzles });
+  return rows;
+}
+const venueOpen = v => venueProgress(v).every(x => x.have >= x.need);
+function venueCard(v) {
+  const open = venueOpen(v), coins = Save.d.coins, poor = open && v.fee > coins, rows = open ? [] : venueProgress(v);
+  const [c1, c2] = v.art;
+  return `<div class="venue ${open ? '' : 'locked'}" data-act="${open ? (poor ? 'venuePoor' : 'onVenue') : 'venueLocked'}" data-a="${v.id}" role="button">
+    <div class="vart" style="background:linear-gradient(135deg,${c1},${c2})"><span>${v.icon}</span>${open ? '' : '<em class="lock">🔒</em>'}</div>
+    <div class="vinfo"><b>${v.name}</b><small>${open ? v.blurb : 'Locked'}</small>
+      ${open ? `<div class="vfee"><span>Entry <b>${v.fee ? '🪙 ' + v.fee : 'Free'}</b></span><span>Prize <b>${v.fee ? '🪙 ' + v.fee * 2 : '—'}</b></span></div>`
+             : `<div class="vreq">${rows.map(x => `<div class="${x.have >= x.need ? 'ok' : ''}"><span>${x.have >= x.need ? '✓' : '○'} ${x.t}</span><i><u style="width:${Math.min(100, Math.round(x.have * 100 / x.need))}%"></u></i><em>${Math.min(x.have, x.need)}/${x.need}</em></div>`).join('')}</div>`}
+    </div>
+    ${open ? `<button class="vgo ${poor ? 'poor' : ''}" tabindex="-1">${poor ? 'Need 🪙' : 'Play'}</button>` : ''}
+  </div>`;
+}
 function renderOnline() {
   const u = ON.user, demo = ON.be.name === 'demo', prov = { guest: 'Guest account', google: 'Signed in with Google', facebook: 'Signed in with Facebook' }[u.provider] || 'Signed in';
-  const tcs = TIMES.slice(0, 3);
+  const tcs = TIMES.slice(0, 3), unlocked = VENUES.filter(venueOpen).length;
   sheet(onHead('🎮 Play') + `<div class="sh-body">
-   <div class="prof"><div class="pav">${avHtml(u)}</div><div class="grow"><input class="nm" data-nm value="${esc(u.name)}" maxlength="16" aria-label="Your name"><small>${prov} · ♔ ${Save.d.rating}</small></div></div>
+   <div class="prof"><div class="pav">${avHtml(u)}</div><div class="grow"><input class="nm" data-nm value="${esc(u.name)}" maxlength="16" aria-label="Your name"><small>${prov} · ♔ ${Save.d.rating} · 🪙 ${Save.d.coins}</small></div></div>
    ${demo ? '<div class="banner gold"><div class="bi">🧪</div><div class="grow"><b>Demo mode</b><small>No Firebase set up yet – open this game in two browser tabs to try it.</small></div></div>' : ''}
    <div class="sec">Time control</div><div class="seg">${tcs.map(t => `<button class="${ON.tc === t.id ? 'on' : ''}" data-act="onTc" data-a="${t.id}">${t.name}</button>`).join('')}</div>
-   <div class="sec">Play online</div>
-   <button class="bigact" data-act="onQuick"><i>⚡</i><div><b>Quick match</b><small>Play a random player online</small></div></button>
-   <button class="bigact alt" data-act="friends"><i>👥</i><div><b>Play with a friend</b><small>Private room · optional coin stake</small></div></button>
+   <div class="sec">Choose a location <span class="cnt">${unlocked}/${VENUES.length} unlocked</span></div>
+   <div class="venues">${VENUES.map(venueCard).join('')}</div>
+   <button class="bigact alt" data-act="friends" style="margin-top:12px"><i>👥</i><div><b>Play with a friend</b><small>Private room · optional coin stake</small></div></button>
    <div class="sec">Account</div>
    ${u.guest ? `<p class="fine" style="margin:0 0 10px;text-align:left">You're playing as a guest. Sign in to keep your name and rating on any device.</p>
      <button class="authbtn g" data-act="onSign" data-a="google"><i>G</i>Continue with Google</button>${FB_ON ? '<button class="authbtn f" data-act="onSign" data-a="facebook"><i>f</i>Continue with Facebook</button>' : ''}`
    : `<button class="btn dark" style="width:100%" data-act="onSignOut">Sign out</button>`}
   </div>`);
 }
+ACT.venueLocked = id => { const v = VENUES.find(x => x.id === id), miss = venueProgress(v).filter(x => x.have < x.need); Sfx.bad && Sfx.bad(); const el = document.querySelector(`.venue[data-a="${id}"]`); if (el) { el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake'); } toast('🔒 ' + miss.map(x => x.t).join(' · '), 2800); };
+ACT.venuePoor = id => { const v = VENUES.find(x => x.id === id); toast(`You need 🪙 ${v.fee} to play here`, 2200); shopTab = 'coins'; setTimeout(() => { if (!G.mode) showShop(); }, 700); };
+ACT.onVenue = id => { ON.venue = VENUES.find(x => x.id === id); Track.event('venue_select', { venue: id }); ACT.onQuick(); };
 ACT.onTc = id => { ON.tc = id; if (ON.view === 'friends') renderFriends(); else renderOnline(); };
 ACT.onSign = async p => { try { toast('Signing in…', 1500); ON.user = await ON.be.signIn(p); Track.event('login', { method: p }); toast('Signed in as ' + ON.user.name); } catch (e) { console.error(e); Track.error(e, 'signin'); if (!/cancel|closed|popup/i.test(String(e.code || e.message))) toast('Sign-in failed: ' + (e.code || e.message), 3500); } ON.view === 'friends' ? renderFriends() : renderOnline(); };
 ACT.onSignOut = async () => { ON.user = await ON.be.signOut(); renderOnline(); };
@@ -559,7 +585,9 @@ const randReel = n => Array.from({ length: n }, () => reelCard(REEL_NAMES[Math.r
 ACT.onQuick = () => {
   ON.searching = true; let sec = 0;
   const base = randReel(14);
-  sheet(onHead('⚡ Quick match') + `<div class="sh-body" style="text-align:center">
+  const V = ON.venue || VENUES[0];
+  sheet(onHead(V.icon + ' ' + V.name) + `<div class="sh-body" style="text-align:center">
+   <div class="vchip">${V.fee ? 'Entry 🪙 ' + V.fee + ' · Prize 🪙 ' + V.fee * 2 : 'Free game'}</div>
    <p class="fine" style="margin-top:6px" id="srchTxt">Looking for an opponent…</p>
    <div class="reel"><div class="strip spin" id="strip">${base}${base}</div><div class="mark"></div></div>
    <div class="vs hidden" id="vsRow"></div>
@@ -567,7 +595,7 @@ ACT.onQuick = () => {
    <button class="btn ghost" style="width:100%;margin-top:10px" data-act="onCancelQuick">Cancel</button></div></div>`);
   const t0 = Date.now(); const tick = () => { if (!ON.searching) return; sec = Math.floor((Date.now() - t0) / 1000); const e = $('#srchSec'); if (e) e.textContent = sec + 's'; if (sec === 20 && $('#srchTxt')) { $('#srchTxt').textContent = 'No one yet… players join all the time. Keep waiting or play the computer.'; $('#srchBtns').insertAdjacentHTML('afterbegin', '<button class="btn dark" style="width:100%;margin-bottom:8px" data-act="onToAI">🤖 Play vs Computer instead</button>'); } ON.reelT = setTimeout(tick, 500); };
   tick();
-  ON.be.quickMatch({ tc: ON.tc }).then(async ({ code }) => {
+  ON.be.quickMatch({ tc: ON.tc, bet: V.fee }).then(async ({ code }) => {
     if (!ON.searching) return; ON.searching = false; clearTimeout(ON.reelT);
     const room = await ON.be.joinRoom(code); const opp = room.host.uid === ON.user.uid ? room.guest : room.host;
     await landReel(opp, room);
@@ -583,7 +611,26 @@ async function landReel(opp, room) {
   strip.style.transition = 'transform 2.8s cubic-bezier(.12,.6,.12,1)'; strip.style.transform = `translateX(${target}px)`;
   Sfx.select(); await sleep(3000);
   const row = $('#vsRow'); if (row) { row.classList.remove('hidden'); row.innerHTML = `<div class="vsc"><div class="pav">${avHtml(ON.user)}</div><b>${esc(ON.user.name)}</b></div><div class="vsx">VS</div><div class="vsc"><div class="pav">${avHtml(opp)}</div><b>${esc(opp.name)}</b></div>`; Sfx.win(); }
-  await sleep(1400); beginOnline(room);
+  await sleep(900); await collectCoins(opp, room.bet || 0); beginOnline(room);
+}
+/** both players' entry fees fly into the prize pool, then the game starts */
+async function collectCoins(opp, bet) {
+  const body = $('.sh-body'); if (!body || !bet) return;
+  body.innerHTML = `<div class="potscene" id="potScene">
+    <div class="potc"><div class="potring">🏆</div><small>Prize pool</small><b id="potAmt">🪙 0</b></div>
+    <div class="pls"><div class="pl"><div class="pav">${avHtml(ON.user)}</div><b>${esc(ON.user.name)}</b><small id="myBal">🪙 ${Save.d.coins}</small></div>
+    <div class="pl"><div class="pav">${avHtml(opp)}</div><b>${esc(opp.name)}</b><small>🪙 −${bet}</small></div></div></div>
+    <p class="fine" id="potTxt" style="text-align:center">Entry fee 🪙 ${bet} each…</p>`;
+  const scene = $('#potScene'), pot = $('.potring', scene).getBoundingClientRect(), box = scene.getBoundingClientRect(), pcx = pot.left + pot.width / 2 - box.left, pcy = pot.top + pot.height / 2 - box.top;
+  const sides = [...scene.querySelectorAll('.pl .pav')].map(a => { const r = a.getBoundingClientRect(); return [r.left + r.width / 2 - box.left, r.top + r.height / 2 - box.top]; });
+  const N = 8, per = bet / N; let got = 0, bal = Save.d.coins; const waits = [];
+  sides.forEach(([sx, sy], si) => { for (let i = 0; i < N; i++) {
+    const c = document.createElement('span'); c.className = 'flycoin'; c.textContent = '🪙'; c.style.left = sx + 'px'; c.style.top = sy + 'px'; scene.appendChild(c);
+    const mid = [(pcx - sx) * 0.5 + (si ? 26 : -26), (pcy - sy) * 0.5 - 30];
+    const an = c.animate([{ transform: 'translate(-50%,-50%) scale(.6)', opacity: 0 }, { transform: `translate(calc(-50% + ${mid[0]}px),calc(-50% + ${mid[1]}px)) scale(1.15)`, opacity: 1, offset: .45 }, { transform: `translate(calc(-50% + ${pcx - sx}px),calc(-50% + ${pcy - sy}px)) scale(.55)`, opacity: .95 }], { duration: 750, delay: 150 + i * 120 + si * 60, easing: 'cubic-bezier(.4,0,.3,1)', fill: 'forwards' });
+    waits.push(an.finished.then(() => { c.remove(); got += per; if (si === 0) { bal -= per; const mb = $('#myBal'); if (mb) mb.textContent = '🪙 ' + Math.max(0, Math.round(bal)); } const pa = $('#potAmt'); if (pa) pa.textContent = '🪙 ' + Math.round(got); Sfx.coin(); const pr = $('.potring', scene); if (pr) pr.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.12)' }, { transform: 'scale(1)' }], 140); }).catch(() => {}));
+  } });
+  await Promise.all(waits); const pa = $('#potAmt'); if (pa) pa.textContent = '🪙 ' + bet * 2; const t = $('#potTxt'); if (t) t.textContent = 'Winner takes it all – good luck! ♟'; Sfx.win && Sfx.win(); await sleep(1100);
 }
 ACT.onCancelQuick = () => { onlineTeardown(); renderOnline(); };
 ACT.onToAI = () => { onlineTeardown(); closeModal(); showSetup('ai'); };

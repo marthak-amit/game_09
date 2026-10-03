@@ -85,24 +85,24 @@ export function firebaseBackend(config) {
     async leaveRoom(code) { try { const ref = doc(db, 'rooms', code), s = await getDoc(ref); if (s.exists() && s.data().status === 'waiting' && s.data().host.uid === me.uid) await deleteDoc(ref); } catch (e) { /* ignore */ } },
 
     /** random opponent: look for a waiting player; otherwise wait in the queue until someone picks us. */
-    quickMatch({ tc }) {
+    quickMatch({ tc, bet = 0 }) {
       return new Promise(async (resolve, reject) => {
         let done = false, unsub = null, beat = null; const qref = doc(db, 'queue', me.uid);
         const cleanup = async () => { done = true; if (unsub) unsub(); clearInterval(beat); quick = null; try { await deleteDoc(qref); } catch (e) { /* ignore */ } };
         quick = () => { if (done) return; cleanup(); reject(new Error('cancelled')); };
         try {
           const snap = await getDocs(query(collection(db, 'queue'), where('tc', '==', tc), limit(12))), now = Date.now();
-          const cands = snap.docs.map(d => d.data()).filter(e => e.uid !== me.uid && !e.room && now - e.t < 25000).sort((a, b) => a.t - b.t);
+          const cands = snap.docs.map(d => d.data()).filter(e => e.uid !== me.uid && !e.room && (e.bet || 0) === bet && now - e.t < 25000).sort((a, b) => a.t - b.t);
           for (const c of cands) {   // seeker: claim a waiting player and create the room
             const code = makeCode(), rref = doc(db, 'rooms', code), cref = doc(db, 'queue', c.uid);
             const ok = await runTransaction(db, async tx => {
               const cs = await tx.get(cref); if (!cs.exists() || cs.data().room) return false;
               tx.update(cref, { room: code });
-              tx.set(rref, { code, status: 'playing', host: { uid: c.uid, name: c.name, photo: c.photo || '', rating: c.rating || 800 }, guest: P(), hostColor: Math.random() < 0.5 ? 0 : 1, tc, moves: [], result: null, t: Date.now(), players: [c.uid, me.uid] }); return true;
+              tx.set(rref, { code, status: 'playing', host: { uid: c.uid, name: c.name, photo: c.photo || '', rating: c.rating || 800 }, guest: P(), hostColor: Math.random() < 0.5 ? 0 : 1, tc, bet, moves: [], result: null, t: Date.now(), players: [c.uid, me.uid] }); return true;
             }).catch(() => false);
             if (ok) { done = true; quick = null; return resolve({ code }); }
           }
-          await setDoc(qref, { uid: me.uid, name: me.name, photo: me.photo || '', rating: me.rating || 800, tc, t: Date.now(), room: null });
+          await setDoc(qref, { uid: me.uid, name: me.name, photo: me.photo || '', rating: me.rating || 800, tc, bet, t: Date.now(), room: null });
           beat = setInterval(() => updateDoc(qref, { t: Date.now() }).catch(() => {}), 8000);
           unsub = onSnapshot(qref, s => { const d = s.exists() ? s.data() : null; if (d && d.room && !done) { cleanup().then(() => resolve({ code: d.room })); } });
         } catch (e) { await cleanup(); reject(e); }

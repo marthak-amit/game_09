@@ -51,3 +51,14 @@ export const TIMES = [
   { id: '10', name: '10 min', base: 600, inc: 0 },
   { id: '15+10', name: '15 | 10', base: 900, inc: 10 }
 ];
+
+/* Online locations (like 8-ball pool tables): bigger entry fee = bigger prize; higher ones unlock with rating, online wins/games and puzzles solved */
+export const VENUES = [
+  { id: 'lounge',   name: 'Open Lounge',        icon: '🛋️', fee: 0,    art: ['#3d5a4a', '#8fbf9f'], blurb: 'Play for fun – no stake', req: {} },
+  { id: 'street',   name: 'Street Corner',      icon: '🛣️', fee: 50,   art: ['#5b4636', '#d1a76c'], blurb: 'Quick games with the locals', req: {} },
+  { id: 'cafe',     name: 'Chai Café',          icon: '☕',  fee: 100,  art: ['#6b3f2a', '#e0a46a'], blurb: 'Where the regulars play', req: { games: 3 } },
+  { id: 'club',     name: 'City Chess Club',    icon: '🏙️', fee: 250,  art: ['#2c4a78', '#7fb0ee'], blurb: 'Serious players, serious stakes', req: { wins: 2, rating: 850 } },
+  { id: 'palace',   name: 'Royal Palace',       icon: '🏰', fee: 500,  art: ['#5a2f7a', '#cfa2f0'], blurb: 'Play under the chandeliers', req: { wins: 5, rating: 950 } },
+  { id: 'maharaja', name: 'Maharaja Hall',      icon: '👑', fee: 1500, art: ['#7a4a10', '#f2cf72'], blurb: 'High stakes for kings', req: { wins: 12, rating: 1100 } },
+  { id: 'grand',    name: 'Grandmaster Arena',  icon: '🏆', fee: 5000, art: ['#7a1f2a', '#f08a8a'], blurb: 'The ultimate table', req: { wins: 30, rating: 1300, puzzles: 30 } }
+];

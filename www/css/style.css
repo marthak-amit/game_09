@@ -305,3 +305,40 @@ input{user-select:text;-webkit-user-select:text;font:inherit;color:inherit}
 .logo{text-shadow:0 3px 0 rgba(0,0,0,.4),0 0 34px rgba(243,210,122,.45)}
 .sk-top span{white-space:nowrap;font-size:13px}.sk-top .mycoins{font-size:13px}
 .quick-bets{grid-template-columns:repeat(3,1fr)}
+
+/* ---- locations (venues) ---- */
+.cnt{float:right;color:var(--mut);font-weight:700;letter-spacing:.04em;text-transform:none;font-size:12px}
+.venues{display:flex;flex-direction:column;gap:9px}
+.venue{display:flex;align-items:center;gap:12px;background:linear-gradient(rgba(74,51,34,.9),rgba(37,25,16,.95));border:1px solid #6a4c2e;border-radius:18px;padding:10px;position:relative;overflow:hidden;cursor:pointer}
+.venue:active{transform:scale(.985)}
+.vart{width:68px;height:68px;border-radius:16px;display:grid;place-items:center;flex:none;position:relative;box-shadow:inset 0 0 0 2px rgba(255,255,255,.25),0 4px 10px rgba(0,0,0,.4)}
+.vart span{font-size:34px;filter:drop-shadow(0 3px 4px rgba(0,0,0,.45))}
+.lock{position:absolute;right:-6px;bottom:-6px;font-style:normal;font-size:20px;background:#120c08;border:2px solid #6a4c2e;border-radius:50%;width:30px;height:30px;display:grid;place-items:center}
+.vinfo{flex:1;min-width:0}.vinfo>b{display:block;font-size:16px}.vinfo>small{display:block;font-size:12px;color:var(--mut);margin-top:1px}
+.vfee{display:flex;gap:12px;margin-top:6px;font-size:12px;color:var(--mut);font-weight:700}.vfee b{color:var(--gold1);font-size:13px}
+.vgo{background:linear-gradient(#f6d98a,var(--gold2));color:#2a1604;font-weight:900;border-radius:13px;padding:11px 16px;font-size:14px;box-shadow:0 3px 0 var(--gold3);pointer-events:none}
+.vgo.poor{background:rgba(255,255,255,.12);color:var(--ink);box-shadow:none}
+.venue.locked{background:linear-gradient(rgba(40,30,22,.9),rgba(22,15,10,.95));border-color:#3c2c1e}
+.venue.locked .vart{filter:grayscale(.85) brightness(.6)}.venue.locked .vinfo>b{color:#bfae92}
+.vreq{margin-top:6px;display:flex;flex-direction:column;gap:5px}
+.vreq>div{display:grid;grid-template-columns:1fr auto;grid-template-areas:"t e" "b b";gap:2px 8px;font-size:11.5px;color:var(--mut);font-weight:700}
+.vreq span{grid-area:t}.vreq em{grid-area:e;font-style:normal;color:var(--ink)}.vreq i{grid-area:b;display:block;height:5px;border-radius:3px;background:rgba(0,0,0,.45);overflow:hidden}.vreq u{display:block;height:100%;background:linear-gradient(90deg,#c9973a,#f6d98a);border-radius:3px}
+.vreq .ok span{color:#9be2b4}.vreq .ok u{background:#56c486}
+.shake{animation:shake .4s}@keyframes shake{20%{transform:translateX(-7px)}40%{transform:translateX(7px)}60%{transform:translateX(-5px)}80%{transform:translateX(4px)}}
+.vchip{display:inline-block;margin-top:6px;background:rgba(243,210,122,.16);border:1px solid var(--gold2);color:var(--gold1);font-weight:800;font-size:13px;border-radius:14px;padding:5px 14px}
+.unlock{margin:10px 0 2px;background:rgba(86,196,134,.16);border:1px solid rgba(86,196,134,.5);color:#bff0d2;border-radius:12px;padding:8px 10px;font-size:13px;font-weight:700}
+
+/* ---- coin collection ---- */
+.potscene{position:relative;height:330px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:6px 0 0}
+.potc{text-align:center;margin-top:6px}.potring{width:104px;height:104px;margin:0 auto;border-radius:50%;display:grid;place-items:center;font-size:52px;background:radial-gradient(circle at 50% 35%,#6b4a14,#2b1c0a);border:3px solid var(--gold1);box-shadow:0 0 36px rgba(243,210,122,.45)}
+.potc small{display:block;margin-top:8px;font-size:11px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--mut)}.potc b{display:block;font-size:32px;color:var(--gold1);font-family:Georgia,serif}
+.pls{display:flex;justify-content:space-between;width:100%;padding:0 6px}
+.pl{display:flex;flex-direction:column;align-items:center;gap:4px;width:42%}.pl b{font-size:14px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pl small{color:var(--mut);font-weight:700;font-size:12px}
+.flycoin{position:absolute;font-size:26px;pointer-events:none;z-index:5;opacity:0;filter:drop-shadow(0 2px 3px rgba(0,0,0,.5))}
+
+/* ---- home: a touch darker glass ---- */
+.home-bottom .btn.online{background:linear-gradient(rgba(84,140,230,.7),rgba(26,66,170,.68))}
+.home-bottom .btn.gold{background:linear-gradient(rgba(214,176,92,.66),rgba(150,106,34,.62))}
+.home-bottom .btn.dark{background:linear-gradient(rgba(44,31,21,.7),rgba(14,9,5,.72))}
+.home-bottom .tile{background:linear-gradient(rgba(44,31,21,.66),rgba(14,9,5,.7))}
+.home-top .chip,.home-top .icon{background:rgba(14,9,5,.6)}

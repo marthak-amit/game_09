@@ -49,17 +49,17 @@ export function localBackend() {
     async pushMove(code, uci, len) { const rooms = rd(LS.rooms), r = rooms[code]; if (!r || r.moves.length !== len) throw new Error('stale'); r.moves.push(uci); wr(LS.rooms, rooms); notify(); },
     async finish(code, result, reason) { const rooms = rd(LS.rooms), r = rooms[code]; if (!r || r.result) return; r.result = { result, reason }; r.status = 'over'; wr(LS.rooms, rooms); notify(); },
     async leaveRoom(code) { const rooms = rd(LS.rooms), r = rooms[code]; if (r && r.status === 'waiting' && r.host.uid === me.uid) { delete rooms[code]; wr(LS.rooms, rooms); notify(); } },
-    quickMatch({ tc }) {
+    quickMatch({ tc, bet = 0 }) {
       return new Promise((resolve, reject) => {
         const q = rd(LS.queue), now = Date.now();
         for (const [uid, e] of Object.entries(q)) if (now - e.t > 30000) delete q[uid];
-        const other = Object.values(q).find(e => e.uid !== me.uid && !e.room && e.tc === tc);
+        const other = Object.values(q).find(e => e.uid !== me.uid && !e.room && e.tc === tc && (e.bet || 0) === bet);
         if (other) {   // I am the seeker: create the room with the waiting player as host
           const rooms = rd(LS.rooms); let code; do code = makeCode(); while (rooms[code]);
-          rooms[code] = { code, status: 'playing', host: { uid: other.uid, name: other.name, photo: '', rating: other.rating }, guest: B._p(), hostColor: Math.random() < 0.5 ? 0 : 1, tc, moves: [], result: null, t: now };
+          rooms[code] = { code, status: 'playing', host: { uid: other.uid, name: other.name, photo: '', rating: other.rating }, guest: B._p(), hostColor: Math.random() < 0.5 ? 0 : 1, tc, bet, moves: [], result: null, t: now };
           q[other.uid].room = code; wr(LS.rooms, rooms); wr(LS.queue, q); notify(); return resolve({ code });
         }
-        q[me.uid] = { uid: me.uid, name: me.name, rating: me.rating || 800, tc, t: now, room: null }; wr(LS.queue, q);
+        q[me.uid] = { uid: me.uid, name: me.name, rating: me.rating || 800, tc, bet, t: now, room: null }; wr(LS.queue, q);
         const beat = () => { const qq = rd(LS.queue); if (qq[me.uid]) { qq[me.uid].t = Date.now(); wr(LS.queue, qq); } };
         const check = () => { const e = rd(LS.queue)[me.uid]; if (e && e.room) { stop(); const qq = rd(LS.queue); delete qq[me.uid]; wr(LS.queue, qq); resolve({ code: e.room }); } };
         const stop = () => { subs.delete(check); clearInterval(quickTimer); B._cancel = null; };
