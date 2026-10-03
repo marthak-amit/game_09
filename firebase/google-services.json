@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "251562276058",
+    "project_id": "royalchess3d-ed14b",
+    "storage_bucket": "royalchess3d-ed14b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:251562276058:android:632952369a4cdfc085a1e3",
+        "android_client_info": {
+          "package_name": "com.marthak.royalchess3d"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "251562276058-0ch9se37mufntlslbgpbpeqt3779aa78.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.marthak.royalchess3d",
+            "certificate_hash": "546eb1a439f751d628d282ecb73f55c25c9c7a41"
+          }
+        },
+        {
+          "client_id": "251562276058-7sl0r1q50rfnukhv5pfpiqafg066hhvj.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.marthak.royalchess3d",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "251562276058-6242595g0dq3cu0cqc853r5s91igpp49.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBse0MuDJJEgCK8sKYAd_JJF2W9-hPDBkM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "251562276058-6242595g0dq3cu0cqc853r5s91igpp49.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

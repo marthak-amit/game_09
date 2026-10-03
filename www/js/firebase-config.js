@@ -1,10 +1,10 @@
-/* Online play configuration.
-   Paste your Firebase web-app config here (Firebase console → Project settings → Your apps → Web app → "SDK setup and configuration").
-   While this is null the online screens say "not configured yet" on a phone, and use a local two-tab demo backend in a desktop browser. */
-export const FIREBASE_CONFIG = null;
-/* Example:
+/* Online play configuration – Firebase web-app config (public by design; access is controlled by firestore.rules + Auth).
+   Project: royalchess3d-ed14b */
 export const FIREBASE_CONFIG = {
-  apiKey: 'AIza…', authDomain: 'your-app.firebaseapp.com', projectId: 'your-app',
-  storageBucket: 'your-app.appspot.com', messagingSenderId: '1234567890', appId: '1:1234567890:web:abcdef'
+  apiKey: 'AIzaSyBvAJ3tvCpZJi813hEVXTRg0BCds7rqimY',
+  authDomain: 'royalchess3d-ed14b.firebaseapp.com',
+  projectId: 'royalchess3d-ed14b',
+  storageBucket: 'royalchess3d-ed14b.firebasestorage.app',
+  messagingSenderId: '251562276058',
+  appId: '1:251562276058:web:54eb4a752f29f3e985a1e3'
 };
-*/

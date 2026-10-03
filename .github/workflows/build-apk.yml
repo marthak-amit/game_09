@@ -29,7 +29,8 @@ jobs:
           FACEBOOK_APP_ID: ${{ secrets.FACEBOOK_APP_ID }}
           FACEBOOK_CLIENT_TOKEN: ${{ secrets.FACEBOOK_CLIENT_TOKEN }}
       - name: Install google-services.json
-        run: if [ -f /tmp/gs/google-services.json ]; then cp /tmp/gs/google-services.json android/app/google-services.json; fi
+        run: |
+          if [ -f /tmp/gs/google-services.json ]; then cp /tmp/gs/google-services.json android/app/google-services.json; elif [ -f firebase/google-services.json ]; then cp firebase/google-services.json android/app/google-services.json; fi
       - run: npx cap sync android
       - run: cd android && ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
