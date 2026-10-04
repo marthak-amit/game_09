@@ -378,3 +378,11 @@ input{user-select:text;-webkit-user-select:text;font:inherit;color:inherit}
 .idle span{font-size:12px;font-weight:800;color:var(--ink);white-space:nowrap;font-variant-numeric:tabular-nums}
 .idle.danger{border-color:#ff4a4a;animation:pulse .5s infinite}.idle.danger .ibar u{background:#ff4a4a}.idle.danger span{color:#ff8a8a}
 .vc-row small{white-space:nowrap;font-size:9.5px}.vc-row b{white-space:nowrap}
+
+/* ---- who-is-who finder strip ---- */
+.finder{margin-top:auto;display:flex;gap:5px;padding:5px;background:rgba(18,12,8,.74);border:1px solid #5a4028;border-radius:16px;backdrop-filter:blur(8px);pointer-events:auto}
+.finder+.bar.bottom{margin-top:6px}
+.finder button{flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;padding:4px 0 3px;border-radius:11px;background:rgba(255,255,255,.06);min-width:0}
+.finder button i{font-style:normal;font-size:23px;line-height:26px;height:26px}
+.finder button span{font-size:9.5px;font-weight:800;letter-spacing:.02em;color:var(--gold1);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.finder button:active{background:rgba(243,210,122,.3);transform:scale(.95)}

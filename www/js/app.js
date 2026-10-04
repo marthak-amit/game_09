@@ -17,6 +17,7 @@ const GL = {
 };
 const NAMES = { royal: { p: 'Soldier', n: 'Horse', b: 'Camel', r: 'Elephant', q: 'Queen', k: 'King' }, staunton: { p: 'Pawn', n: 'Knight', b: 'Bishop', r: 'Rook', q: 'Queen', k: 'King' } };
 const TCH = ' pnbrqk';
+const FINDER_ORDER = ['r', 'n', 'b', 'q', 'k', 'p'];
 const PINFO = {
   royal: { p: ['♟\uFE0E', 'Soldier (Pawn)', 'Steps forward 1 (2 from its start square) and captures diagonally.'], n: ['🐴', 'Horse (Knight)', 'Leaps in an L-shape and can jump over other pieces.'], b: ['🐪', 'Camel (Bishop)', 'Moves any distance diagonally.'], r: ['🐘', 'Elephant (Rook)', 'Marches any distance in a straight line.'], q: ['♛\uFE0E', 'Queen', 'Moves any distance in a straight line or diagonally – the strongest piece.'], k: ['♚\uFE0E', 'King', 'Steps one square in any direction. Keep it safe!'] },
   staunton: { p: ['♟\uFE0E', 'Pawn', 'Steps forward 1 (2 from its start square) and captures diagonally.'], n: ['♞\uFE0E', 'Knight', 'Jumps in an L-shape and can hop over other pieces.'], b: ['♝\uFE0E', 'Bishop', 'Moves any distance diagonally.'], r: ['♜\uFE0E', 'Rook', 'Moves any distance in a straight line.'], q: ['♛\uFE0E', 'Queen', 'Moves any distance in a straight line or diagonally – the strongest piece.'], k: ['♚\uFE0E', 'King', 'Steps one square in any direction. Keep it safe!'] }
@@ -47,7 +48,18 @@ function applyStyle() {
 syncQuick();
 scene.onQuality = q => toast('Graphics set to ' + q + ' for smooth play', 2600);
 
+/* ---------- "who is who": piece finder strip (tap = every piece of that kind bounces and shows its name) ---------- */
+function renderFinder() {
+  const set = Save.d.set; $('#finder').innerHTML = FINDER_ORDER.map(t => `<button data-t="${t}"><i>${PINFO[set][t][0]}</i><span>${NAMES[set][t]}</span></button>`).join('');
+}
+$('#finder').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b || !G.mode) return; Sfx.init(); Sfx.select(); const t = b.dataset.t;
+  scene.showTags([t], 3800); const [g, name, desc] = PINFO[Save.d.set][t]; const el = $('#pinfo'); el.className = 'pinfo w'; el.innerHTML = `<div class="pg2">${g}</div><div><b>${name}</b><span>${desc}</span></div>`;
+  clearTimeout(pinfoT); pinfoT = setTimeout(hidePieceInfo, 4200);
+});
+function introNames() { if (Save.d.introTags !== false && G.mode !== 'puzzle') setTimeout(() => { if (G.mode && !G.over && !modalOpen()) scene.showTags(null, 4800); }, 900); }
 function syncQuick() {
+  renderFinder();
   const b = BOARDS[Save.d.board] || BOARDS.bw, c = Save.d.board === 'custom' ? Save.d.customBoard : b;
   $('#qBoard .qsw').style.background = `linear-gradient(135deg,${c.light} 50%,${c.dark} 50%)`; $('#qPieces .qg').textContent = Save.d.set === 'royal' ? '🐴' : '♞\uFE0E';
 }
@@ -162,7 +174,7 @@ function newGame(o, resume) {
   $('#home').classList.add('hidden'); $('#hud').classList.remove('hidden');
   const view = (G.mode === 'ai' || G.mode === 'online') ? (G.human ? 'black' : 'white') : (G.board.turn ? 'black' : 'white');
   scene.resetCamera(G.mode === 'pvp' && !Save.d.autoRotate ? 'white' : view, !!resume ? false : false);
-  setupBars(); updateHud(); startClock(); saveGame();
+  setupBars(); updateHud(); startClock(); saveGame(); introNames();
   if (G.mode === 'ai' && G.board.turn !== G.human) aiMove();
 }
 function trackCapture(b, m) {
@@ -749,7 +761,7 @@ function showSettings() {
   sheet(`<div class="sh-head"><h2>⚙ Settings</h2><button class="x" data-act="close" aria-label="Close">✕</button></div>
    <div class="sh-body">
    <div class="sec">Sound &amp; feel</div><div class="grp">${tg('sound', '🔊', 'Sound effects')}${tg('music', '🎵', 'Music')}${tg('vib', '📳', 'Vibration')}</div>
-   <div class="sec">Gameplay</div><div class="grp">${tg('legal', '🟢', 'Show legal moves', 'Dots on squares a piece can reach')}${tg('cinema', '🎬', 'Cinematic move camera', 'Camera follows every move')}
+   <div class="sec">Gameplay</div><div class="grp">${tg('legal', '🟢', 'Show legal moves', 'Dots on squares a piece can reach')}${tg('cinema', '🎬', 'Cinematic move camera', 'Camera follows every move')}${tg('introTags', '🏷', 'Show piece names at the start', 'Names float above the pieces for a few seconds')}
      <div class="row-s col2">${lbl('🧑‍🤝‍🧑', 'Pass &amp; Play board', 'Fixed = sit face to face, board never turns')}${`<div class="seg"><button class="${d.autoRotate ? 'on' : ''}" data-act="rot" data-a="auto">🔄 Turns</button><button class="${!d.autoRotate ? 'on' : ''}" data-act="rot" data-a="fixed">🪑 Fixed</button></div>`}</div></div>
    <div class="sec">Appearance</div><div class="grp">
      <div class="row-s col2">${lbl('🐴', 'Piece style')}${seg('set', [['royal', '🐴 Royal Animals'], ['staunton', '♞ Classic']])}</div>

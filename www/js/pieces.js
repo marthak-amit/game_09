@@ -245,8 +245,19 @@ export const SETS = {
 };
 
 /** returns {root, legs:[{grp,front}], height, rearPivot?, kind} */
-export function buildPiece(type, set, mats) {
+/* Each animal gets its own body hue so the three look-alike quadrupeds are told apart at a glance:
+   horse = ivory/black · camel = sandy gold / brown · elephant = steel blue-grey (White team lighter, Black team darker) */
+const HUES = { // [white-team tint, black-team tint, mix]
+  n: [0xf7f1e2, 0x1f1c1b, 0.55], b: [0xe0a84a, 0x7a4a1c, 0.8], r: [0x9fb4d4, 0x3b4c6e, 0.82]
+};
+function animalMats(type, mats, color) {
+  const h = HUES[type]; if (!h) return mats; const cache = mats._tint || (mats._tint = {});
+  if (!cache[type]) { const m = mats.body.clone(); m.color = mats.body.color.clone().lerp(new THREE.Color(h[color]), h[2]); cache[type] = { ...mats, body: m }; }
+  return cache[type];
+}
+export function buildPiece(type, set, mats, color = 0) {
   const kit = new Kit(), out = { legs: [], kind: type };
+  if (set !== 'staunton') mats = animalMats(type, mats, color);
   const staunton = set === 'staunton';
   switch (type) {
     case 'p': pawn(kit); break;

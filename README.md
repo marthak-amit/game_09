@@ -13,6 +13,9 @@ Every piece looks like what it is — and **moves like it**:
 Prefer tournament pieces? Settings → *Piece style* → **Classic Staunton** (carved horse-head knight, crenellated rook, mitre bishop).
 
 ## Always know who is who
+- **Each animal has its own colour** – Horse = ivory / black, Camel = sandy gold / brown, Elephant = steel blue-grey (lighter for White, darker for Black)
+- **Piece finder strip** above your player bar: tap Elephant / Horse / Camel / Queen / King / Soldier and every piece of that kind bounces and shows its **name tag** (plus a one-line description)
+- **Name tags at the start** of every game (switch off in Settings → Show piece names at the start)
 - **Piece icons on the board's border panel** – White's set (🐴 🐘 🐪 ♛ ♚ ♟, ivory with a gold ring) sits along the bottom edge in the exact start-position order (Elephant Horse Camel Queen King Camel Horse Elephant), each icon directly behind its own file; Black's set (dark with a red ring) mirrors it along the top edge, upside-down so Black reads it from their side. Tap a piece and its icon on the border **glows**. Prefer them floating above the pieces, or off? Settings → *Piece icons*
 - **Team rings** on every base: gold = White, red = Black
 - **Turn banner** under the top bar: *"Your move · White"*, *"Computer's move · Black"*, *"⚠ CHECK"*

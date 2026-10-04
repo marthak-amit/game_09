@@ -82,10 +82,44 @@ export class ChessScene {
     requestAnimationFrame(loop);
   }
 
+  /* ---------- name tags: float the piece's NAME above chosen pieces for a few seconds ---------- */
+  tagTexture(name, color) {
+    const k = name + color; this.tagCache = this.tagCache || {}; if (this.tagCache[k]) return this.tagCache[k];
+    const c = document.createElement('canvas'); c.width = 320; c.height = 112; const x = c.getContext('2d'), w = color === 0;
+    x.shadowColor = 'rgba(0,0,0,.6)'; x.shadowBlur = 10; x.shadowOffsetY = 3; x.fillStyle = w ? '#f6ecd2' : '#1b1514'; x.strokeStyle = w ? '#d9a62e' : '#d0323b'; x.lineWidth = 8;
+    x.beginPath(); x.roundRect(10, 12, 300, 68, 34); x.fill(); x.shadowColor = 'transparent'; x.stroke();
+    x.beginPath(); x.moveTo(145, 80); x.lineTo(160, 104); x.lineTo(175, 80); x.closePath(); x.fillStyle = w ? '#f6ecd2' : '#1b1514'; x.fill();
+    x.font = '900 40px system-ui,Segoe UI,Roboto,sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = w ? '#2a1a0a' : '#f6ecd2'; x.fillText(name, 160, 48);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return this.tagCache[k] = t;
+  }
+  /** types: array of 'pnbrqk' (or null = every piece except pawns). Pieces of those types bounce and show a name tag for `ms`. */
+  showTags(types, ms = 3600) {
+    const NM = this.set === 'royal' ? { p: 'SOLDIER', n: 'HORSE', b: 'CAMEL', r: 'ELEPHANT', q: 'QUEEN', k: 'KING' } : { p: 'PAWN', n: 'KNIGHT', b: 'BISHOP', r: 'ROOK', q: 'QUEEN', k: 'KING' };
+    this.hideTags(); this.tags = this.tags || [];
+    for (const p of this.all) {
+      if (types ? !types.includes(p.type) : p.type === 'p') continue;
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.tagTexture(NM[p.type], p.color), transparent: true, depthTest: false, depthWrite: false, toneMapped: false, fog: false }));
+      sp.scale.set(1.3, 0.455, 1); sp.renderOrder = 20; this.fx.add(sp); this.tags.push({ sp, p, t: 0, ms: ms / 1000, lift: (p.sq & 1) ? 0.3 : 0 });
+    }
+    this.poke && this.poke();
+  }
+  hideTags() { for (const g of this.tags || []) { this.fx.remove(g.sp); g.sp.material.dispose(); g.p.tilt.scale.setScalar(1); } this.tags = []; }
+  updateTags(dt) {
+    if (!this.tags || !this.tags.length) return;
+    for (let i = this.tags.length - 1; i >= 0; i--) {
+      const g = this.tags[i]; g.t += dt; const k = g.t / g.ms, p = g.p;
+      if (k >= 1 || !this.all.has(p)) { this.fx.remove(g.sp); g.sp.material.dispose(); p.tilt.scale.setScalar(1); this.tags.splice(i, 1); continue; }
+      const pop = Math.min(1, g.t / 0.25), fade = k > 0.85 ? (1 - k) / 0.15 : 1;
+      g.sp.position.set(p.root.position.x, p.root.position.y + (p.height || 1) * 0.95 + 0.5 + g.lift + 0.04 * Math.sin(this.t * 5), p.root.position.z);
+      g.sp.material.opacity = fade * pop; g.sp.scale.set(1.3 * (0.6 + 0.4 * pop), 0.455 * (0.6 + 0.4 * pop), 1);
+      const b = 1 + 0.07 * Math.sin(this.t * 9) * fade; p.tilt.scale.setScalar(b);
+    }
+  }
   /** any highlight that pulses or particle still alive? */
   animating() {
     const h = this.hl; if ((h.check && h.check.visible) || (h.hintB && h.hintB.visible) || (h.sel && h.sel.visible)) return true;
     if (this.legendGlows && this.legendGlows[0].visible) return true;
+    if (this.tags && this.tags.length) return true;
     for (const sp of this.sprites) if (sp.userData.life > 0) return true; return false;
   }
   /* ---------- setup ---------- */
@@ -127,7 +161,7 @@ export class ChessScene {
   }
   async ensureKit(set = this.set, scheme = this.scheme) {
     const kit = this.getKit(set, scheme); if (kit.full) return kit;
-    for (const c of [0, 1]) for (const t of 'pnbrqk') { const key = t + c; if (!kit.tpl[key]) { kit.tpl[key] = buildPiece(t, kit.set, kit.mats[c]); await sleep0(); } }
+    for (const c of [0, 1]) for (const t of 'pnbrqk') { const key = t + c; if (!kit.tpl[key]) { kit.tpl[key] = buildPiece(t, kit.set, kit.mats[c], c); await sleep0(); } }
     kit.full = true; return kit;
   }
   async rebuildPieces() {
@@ -225,12 +259,12 @@ export class ChessScene {
 
   /* ---------- pieces ---------- */
   drop(p) { this.pieceRoot.remove(p.root); if (p.base) this.pieceRoot.remove(p.base); this.all.delete(p); }
-  clearPieces() { for (const p of [...this.all]) this.drop(p); this.pieces.clear(); }
+  clearPieces() { this.hideTags(); for (const p of [...this.all]) this.drop(p); this.pieces.clear(); }
   loadPosition(b) { this.clearPieces(); for (let sq = 0; sq < 64; sq++) { const p = b[sq]; if (p) this.spawn(TYPE_CH[p & 7], p >> 3, sq); } this.clearMarks(); }
   at(sq) { return this.pieces.get(sq); }
   spawn(type, color, sq, scale = 1) {
     const key = type + color, kit = this.kit; let tpl = kit.tpl[key];
-    if (!tpl) tpl = kit.tpl[key] = buildPiece(type, kit.set, kit.mats[color]);
+    if (!tpl) tpl = kit.tpl[key] = buildPiece(type, kit.set, kit.mats[color], color);
     const root = new THREE.Group(), tilt = new THREE.Group(), content = tpl.root.clone(true);
     root.rotation.order = 'YXZ'; tilt.rotation.order = 'YXZ'; tilt.add(content); root.add(tilt);
     const legs = []; content.traverse(o => { if (o.userData.leg) legs.push(o); });
@@ -396,6 +430,7 @@ export class ChessScene {
     if (this.hl.hintB && this.hl.hintB.visible) { const o = 0.5 + 0.3 * Math.sin(this.t * 6); this.hl.hintA.material.opacity = o * 0.7; this.hl.hintB.material.opacity = o; }
     if (this.legendGlows) for (const q of this.legendGlows) if (q.visible) { const k = 1.1 + 0.15 * Math.sin(this.t * 6); q.scale.set(k, k, 1); }
     if (this.hl.sel && this.hl.sel.visible) this.hl.sel.material.opacity = 0.4 + 0.15 * Math.sin(this.t * 5);
+    this.updateTags(dt);
     if (this.bgFx) this.bgFx.update(dt, this.t);
     for (const p of this.all) if (p.base) { p.base.position.set(p.root.position.x, 0.002, p.root.position.z); p.base.scale.setScalar(p.root.scale.x); }
     this.controls.update();
