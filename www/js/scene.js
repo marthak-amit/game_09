@@ -63,8 +63,8 @@ export class ChessScene {
     this.ray = new THREE.Raycaster(); this.plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     if (init.set) this.set = init.set; if (init.pcolor) this.scheme = init.pcolor; if (init.board) this.boardKey = init.board; if (init.custom) { this.custom = init.custom; this.customJson = JSON.stringify(init.custom); }
     if (init.labels) this.labels = init.labels; if (init.cinema !== undefined) this.cine = init.cinema; if (init.speed !== undefined) this.speed = init.speed;
-    this.qualityReq = init.quality || 'high'; this.applyQuality(this.qualityReq); this.bgKey = null; this.kit = this.getKit(this.set, this.scheme);
-    this.ready = (async () => { await this.buildBoard(); await this.setBackground(init.bg || 'wood'); await this.ensureKit(); this.updateLegend(); await this.precompile(); this.live = true; })();
+    this.autoFlat = init.flatHigh !== false; this.qualityReq = init.quality || 'high'; this.applyQuality(this.qualityReq); this.bgKey = null; this.kit = this.getKit(this.set, this.scheme);
+    this.ready = (async () => { await this.buildBoard(); await this.setBackground(init.bg || 'wood'); await this.ensureKit(); this.updateLegend(); this.flatIcons(this.kit); await this.precompile(); this.live = true; })();
     this.bindInput(); this.last = performance.now();
     new ResizeObserver(() => this.resize()).observe(canvas.parentElement || canvas); this.resize();
     this.resetCamera('white', true);
@@ -100,6 +100,7 @@ export class ChessScene {
       for (let y = 0; y < R; y++) id.data.set(buf.subarray((R - 1 - y) * R * 4, (R - y) * R * 4), y * R * 4); rx.putImageData(id, 0, 0);
       const sil = document.createElement('canvas'); sil.width = sil.height = R; const sx = sil.getContext('2d'); sx.drawImage(raw, 0, 0); sx.globalCompositeOperation = 'source-in'; sx.fillStyle = c === 0 ? '#2b1d12' : '#0d0a08'; sx.fillRect(0, 0, R, R);
       const cv = document.createElement('canvas'); cv.width = cv.height = R; const cx = cv.getContext('2d');
+      cx.fillStyle = 'rgba(0,0,0,.3)'; cx.beginPath(); cx.ellipse(R / 2, R - 17, R * 0.27, 8, 0, 0, 7); cx.fill();
       for (let a = 0; a < 16; a++) cx.drawImage(sil, Math.cos(a / 16 * 6.283) * 4.5, Math.sin(a / 16 * 6.283) * 4.5 + 2.5);
       cx.drawImage(raw, 0, 0);
       const tx = new THREE.CanvasTexture(cv); tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 8; tx.generateMipmaps = true; tx.minFilter = THREE.LinearMipmapLinearFilter; out[key] = tx;
@@ -108,21 +109,24 @@ export class ChessScene {
   }
   attachIcon(p) {
     if (p.icon) return; const tx = this.flatIcons(this.kit)[p.type + p.color]; if (!this.iconGeo) this.iconGeo = new THREE.PlaneGeometry(1.18, 1.18);
-    const m = new THREE.Mesh(this.iconGeo, new THREE.MeshBasicMaterial({ map: tx, transparent: true, depthWrite: false, toneMapped: false })); m.rotation.x = -Math.PI / 2; m.rotation.z = this.flatYaw || 0; m.renderOrder = 3; m.userData.piece = p;
+    const m = new THREE.Mesh(this.iconGeo, new THREE.MeshBasicMaterial({ map: tx, transparent: true, depthWrite: false, toneMapped: false })); m.rotation.x = -Math.PI / 2; m.renderOrder = 3; m.userData.piece = p;
     this.fx.add(m); p.icon = m; this.syncIcon(p);
   }
   syncIcon(p) {
-    const m = p.icon; if (!m) return; const k = Math.cos(this.flatYaw || 0), sc = p.root.scale.x; m.position.set(p.root.position.x, 0.05 + Math.max(0, p.root.position.y) * 0.4, p.root.position.z - 0.12 * k); m.scale.setScalar(sc); m.visible = p.root.visible;
+    const m = p.icon; if (!m) return; const th = this.flatYaw || 0, y = Math.max(0, p.root.position.y), sc = p.root.scale.x * (1 + y * 0.3);
+    m.position.set(p.root.position.x - 0.12 * Math.sin(th), 0.05 + y * 0.4, p.root.position.z - 0.12 * Math.cos(th)); m.rotation.z = th; m.scale.setScalar(sc); m.visible = p.root.visible;
   }
   detachIcon(p) { if (!p.icon) return; this.fx.remove(p.icon); p.icon.material.dispose(); p.icon = null; }
-  /** on = flat 2D board, off = normal 3D */
-  set2D(on, yaw = 0) {
-    this.is2D = on; this.flatYaw = yaw; const c = this.controls;
-    if (on) { c.minPolarAngle = 0.02; c.maxPolarAngle = 0.02; c.minAzimuthAngle = yaw; c.maxAzimuthAngle = yaw; }
-    else { c.minPolarAngle = 0.12; c.maxPolarAngle = 1.36; c.minAzimuthAngle = -Infinity; c.maxAzimuthAngle = Infinity; }
-    for (const p of this.all) { if (on) { this.attachIcon(p); if (p.icon) p.icon.rotation.z = yaw; } else this.detachIcon(p); p.content.visible = !on; if (p.base) p.base.visible = !on; }
-    if (this.legendMesh) this.legendMesh.visible = this.labels === 'border';
-    this.setSph(yaw, on ? 0.02 : 0.88, this.fitDist || 22); this.poke && this.poke();
+  /** swap between the 3D pieces and the flat icons; chosen automatically from the camera angle (high angle = clear flat icons, low angle = real 3D) */
+  setFlat(on) {
+    if (this.is2D === on) return; this.is2D = on;
+    for (const p of this.all) { if (on) this.attachIcon(p); else this.detachIcon(p); p.content.visible = !on; if (p.base) p.base.visible = !on; }
+    this.poke && this.poke();
+  }
+  updateFlat() {
+    if (!this.autoFlat) { if (this.is2D) this.setFlat(false); return; }
+    const phi = this.controls.getPolarAngle(); if (!this.is2D && phi < 0.70) this.setFlat(true); else if (this.is2D && phi > 0.82) this.setFlat(false);
+    if (this.is2D) this.flatYaw = this.controls.getAzimuthalAngle();
   }
   /* ---------- name tags: float the piece's NAME above chosen pieces for a few seconds ---------- */
   tagTexture(name, color) {
@@ -169,7 +173,6 @@ export class ChessScene {
     const h = this.hl; if ((h.check && h.check.visible) || (h.hintB && h.hintB.visible) || (h.sel && h.sel.visible)) return true;
     if (this.legendGlows && this.legendGlows[0].visible) return true;
     if (this.tags && this.tags.length) return true;
-    if (this.is2D && this.tweens.length) return true;
     for (const sp of this.sprites) if (sp.userData.life > 0) return true; return false;
   }
   /* ---------- setup ---------- */
@@ -217,7 +220,7 @@ export class ChessScene {
   async rebuildPieces() {
     const tok = ++this.pieceTok, want = this.getKit(this.set, this.scheme); await this.ensureKit(this.set, this.scheme);
     if (tok !== this.pieceTok) return;
-    this.kit = want; this.labelCache = {}; this.updateLegend();
+    this.kit = want; this.labelCache = {}; this.updateLegend(); this.flatIcons(want); if (this.is2D) { this.is2D = false; }
     const lay = [...this.pieces.values()].map(p => ({ type: p.type, color: p.color, sq: p.sq })); this.clearPieces(); for (const l of lay) this.spawn(l.type, l.color, l.sq);
   }
   async buildBoard() {
@@ -242,8 +245,8 @@ export class ChessScene {
     for (const [w, d, x, z] of [[8.16, 0.08, 0, -4.04], [8.16, 0.08, 0, 4.04], [0.08, 8.16, -4.04, 0], [0.08, 8.16, 4.04, 0]]) { const b = new THREE.Mesh(new THREE.BoxGeometry(w, 0.07, d), trim); b.position.set(x, 0.03, z); b.receiveShadow = true; g.add(b); }
   }
   /** apply any subset of style options; heavy parts are async (sliced) so the UI never freezes */
-  async setStyle({ board, pcolor, set, quality, speed, cinema, labels, bg, custom }) {
-    await this.ready;
+  async setStyle({ board, pcolor, set, quality, speed, cinema, labels, bg, custom, flatHigh }) {
+    await this.ready; if (flatHigh !== undefined) this.autoFlat = flatHigh !== false;
     const jobs = []; let boardChanged = false;
     if (speed !== undefined) this.speed = speed;
     if (cinema !== undefined) this.cine = cinema;
@@ -416,12 +419,12 @@ export class ChessScene {
 
   /* ---------- camera ---------- */
   resetCamera(view, instant) {
-    const target = { white: [0, 0.88], black: [Math.PI, 0.88], top: [this.controls.getAzimuthalAngle(), 0.14], side: [Math.PI / 2, 1.1] }[view] || [0, 0.88];
-    const r = this.fitDist || 22;
-    if (instant) { this.setSph(target[0], target[1], r); return; }
-    const th0 = this.controls.getAzimuthalAngle(), ph0 = this.controls.getPolarAngle(), r0 = this.camera.position.distanceTo(this.controls.target);
+    const target = { white: [0, 0.5], black: [Math.PI, 0.5], whiteLow: [0, 0.95], blackLow: [Math.PI, 0.95], top: [this.controls.getAzimuthalAngle(), 0.14], side: [Math.PI / 2, 1.1] }[view] || [0, 0.5];
+    const r = (this.fitDist || 22) * (target[1] < 0.7 ? 0.93 : 1), tz = target[1] < 0.7 ? 1.3 : 0.5, t = this.controls.target;   // high view: look slightly further down the board so it sits higher, clear of the buttons
+    if (instant) { t.z = tz; this.setSph(target[0], target[1], r); return; }
+    const th0 = this.controls.getAzimuthalAngle(), ph0 = this.controls.getPolarAngle(), r0 = this.camera.position.distanceTo(t), z0 = t.z;
     const dth = angDelta(th0, target[0]);
-    this.tween(0.8, e => this.setSph(th0 + dth * e, ph0 + (target[1] - ph0) * e, r0 + (r - r0) * e), E.io);
+    this.tween(0.8, e => { t.z = z0 + (tz - z0) * e; this.setSph(th0 + dth * e, ph0 + (target[1] - ph0) * e, r0 + (r - r0) * e); }, E.io);
   }
   setSph(theta, phi, r) {
     const t = this.controls.target; this.camera.position.set(t.x + r * Math.sin(phi) * Math.sin(theta), t.y + r * Math.cos(phi), t.z + r * Math.sin(phi) * Math.cos(theta)); this.controls.update();
@@ -480,7 +483,7 @@ export class ChessScene {
     if (this.hl.hintB && this.hl.hintB.visible) { const o = 0.5 + 0.3 * Math.sin(this.t * 6); this.hl.hintA.material.opacity = o * 0.7; this.hl.hintB.material.opacity = o; }
     if (this.legendGlows) for (const q of this.legendGlows) if (q.visible) { const k = 1.1 + 0.15 * Math.sin(this.t * 6); q.scale.set(k, k, 1); }
     if (this.hl.sel && this.hl.sel.visible) this.hl.sel.material.opacity = 0.4 + 0.15 * Math.sin(this.t * 5);
-    if (this.is2D) for (const p of this.all) this.syncIcon(p);
+    this.updateFlat(); if (this.is2D) for (const p of this.all) this.syncIcon(p);
     this.updateTags(dt);
     if (this.bgFx) this.bgFx.update(dt, this.t);
     for (const p of this.all) if (p.base) { p.base.position.set(p.root.position.x, 0.002, p.root.position.z); p.base.scale.setScalar(p.root.scale.x); }

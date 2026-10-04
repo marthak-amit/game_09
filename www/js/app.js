@@ -35,7 +35,7 @@ const glyph = t => GL[Save.d.set][t];
 Save.load();
 for (const [k, v] of Object.entries(BOARDS)) if (!v.cost && !Save.d.boards.includes(k)) Save.d.boards.push(k);
 bus.toast = toast;
-const styleOpts = () => ({ board: Save.d.board, pcolor: Save.d.pcolor, set: Save.d.set, quality: Save.d.quality, speed: Save.d.speed, cinema: Save.d.cinema, labels: Save.d.labels, bg: Save.d.bg, custom: Save.d.customBoard });
+const styleOpts = () => ({ board: Save.d.board, pcolor: Save.d.pcolor, set: Save.d.set, quality: Save.d.quality, speed: Save.d.speed, cinema: Save.d.cinema, labels: Save.d.labels, bg: Save.d.bg, custom: Save.d.customBoard, flatHigh: Save.d.flatHigh !== false });
 const scene = new ChessScene($('#c'), styleOpts());
 const G = { mode: null, human: 0, level: 2, board: null, moves: [], sans: [], legal: [], over: false, busy: false, thinking: false, sel: -1, targets: [], clocks: [0, 0], tc: TIMES[0], hints: 0, undos: 0, paused: false, startFen: E.START_FEN, id: 0, tick: null, captured: [[], []], lastMove: null };
 
@@ -145,7 +145,7 @@ function showHome() {
   $('#btnContinue').classList.toggle('hidden', !d.game);
   $('#dotGift').classList.toggle('hidden', dailyState().claimed);
   $('#dotPuz').classList.toggle('hidden', d.puzzle.daily === todayStr());
-  scene.loadPosition(new E.Board().b); scene.setMenuSpin(true); scene.resetCamera('white', true); scene.setSph(0.6, 0.9, scene.fitDist * 0.82);
+  scene.loadPosition(new E.Board().b); scene.setMenuSpin(true); scene.resetCamera('white', true); scene.controls.target.z = 0.5; scene.setSph(0.6, 0.9, scene.fitDist * 0.82);
   scene.running = true;
 }
 function dailyState() {
@@ -377,8 +377,8 @@ ACT.close = () => closeModal();
 let viewIdx = 0;
 /** camera views: in solo/online games only YOUR side + top + side (the opponent's side only confused players); Pass & Play keeps both sides */
 function viewList() {
-  if (G.mode === 'ai' || G.mode === 'online' || G.mode === 'puzzle') return [[G.human ? 'black' : 'white', 'Your side'], ['top', 'Top-down view'], ['side', 'Side view']];
-  return [['white', 'White side'], ['black', 'Black side'], ['top', 'Top-down view'], ['side', 'Side view']];
+  if (G.mode === 'ai' || G.mode === 'online' || G.mode === 'puzzle') { const m = G.human ? 'black' : 'white'; return [[m, 'Your side – clear view'], [m + 'Low', '3D low angle'], ['side', 'Side view']]; }
+  return [['white', 'White side – clear view'], ['black', 'Black side – clear view'], ['whiteLow', '3D low angle'], ['side', 'Side view']];
 }
 function cycleView() { const V = viewList(); viewIdx = (viewIdx + 1) % V.length; scene.resetCamera(V[viewIdx][0]); toast(V[viewIdx][1]); }
 $('#btnUndo').onclick = () => { Sfx.click(); doUndo(); };
@@ -761,7 +761,7 @@ function showSettings() {
   sheet(`<div class="sh-head"><h2>⚙ Settings</h2><button class="x" data-act="close" aria-label="Close">✕</button></div>
    <div class="sh-body">
    <div class="sec">Sound &amp; feel</div><div class="grp">${tg('sound', '🔊', 'Sound effects')}${tg('music', '🎵', 'Music')}${tg('vib', '📳', 'Vibration')}</div>
-   <div class="sec">Gameplay</div><div class="grp">${tg('legal', '🟢', 'Show legal moves', 'Dots on squares a piece can reach')}${tg('cinema', '🎬', 'Cinematic move camera', 'Camera follows every move')}${tg('introNames', '🏷', 'Show piece names at the start', 'Small name labels for a few seconds')}
+   <div class="sec">Gameplay</div><div class="grp">${tg('flatHigh', '🔍', 'Clear icons in high view', 'Flat piece icons when looking from above')}${tg('legal', '🟢', 'Show legal moves', 'Dots on squares a piece can reach')}${tg('cinema', '🎬', 'Cinematic move camera', 'Camera follows every move')}${tg('introNames', '🏷', 'Show piece names at the start', 'Small name labels for a few seconds')}
      <div class="row-s col2">${lbl('🧑‍🤝‍🧑', 'Pass &amp; Play board', 'Fixed = sit face to face, board never turns')}${`<div class="seg"><button class="${d.autoRotate ? 'on' : ''}" data-act="rot" data-a="auto">🔄 Turns</button><button class="${!d.autoRotate ? 'on' : ''}" data-act="rot" data-a="fixed">🪑 Fixed</button></div>`}</div></div>
    <div class="sec">Appearance</div><div class="grp">
      <div class="row-s col2">${lbl('🐴', 'Piece style')}${seg('set', [['royal', '🐴 Royal Animals'], ['staunton', '♞ Classic']])}</div>
@@ -779,7 +779,7 @@ function showSettings() {
 }
 ACT.rot = v => { setBoardMode(v === 'fixed'); showSettings(); };
 ACT.settings = () => showSettings();
-ACT.tog = k => { Save.d[k] = !Save.d[k]; Save.save(); if (k === 'cinema') applyStyle(); if (k === 'music') Sfx.music(Save.d.music); if (k === 'sound' && !Save.d.sound) Sfx.music(false); showSettings(); };
+ACT.tog = k => { Save.d[k] = !Save.d[k]; Save.save(); if (k === 'cinema' || k === 'flatHigh') applyStyle(); if (k === 'music') Sfx.music(Save.d.music); if (k === 'sound' && !Save.d.sound) Sfx.music(false); showSettings(); };
 ACT.pick = a => { const [k, v] = a.split(':'); Save.d[k] = k === 'speed' ? +v : v; Save.save(); applyStyle(); if (G.board && G.mode && k === 'set') { updateHud(); } showSettings(); };
 ACT.toShopBg = () => { shopTab = 'scenes'; showShop(); }; ACT.toShopBoards = () => { shopTab = 'boards'; showShop(); };
 ACT.cfinish = f => { Save.d.customBoard.finish = f; Save.save(); applyStyle(); showSettings(); };
