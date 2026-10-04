@@ -82,6 +82,48 @@ export class ChessScene {
     requestAnimationFrame(loop);
   }
 
+  /* ---------- flat 2D view: clean top-down board with flat piece icons (renders of the same pieces, outlined) ---------- */
+  flatIcons(kit) {
+    if (kit.flat) return kit.flat;
+    const R = 256, r = this.renderer, rt = new THREE.WebGLRenderTarget(R, R, { samples: 4, colorSpace: THREE.SRGBColorSpace });
+    const sc = new THREE.Scene(); sc.environment = this.scene.environment; sc.environmentIntensity = 0.85;
+    sc.add(new THREE.HemisphereLight(0xffffff, 0x8a7a66, 1.15)); const dl = new THREE.DirectionalLight(0xffffff, 2.3); dl.position.set(5, 7, 4); sc.add(dl);
+    const half = 0.98, cam = new THREE.OrthographicCamera(-half, half, half, -half, 0.1, 60), buf = new Uint8Array(R * R * 4), out = {};
+    const pr = r.getRenderTarget(), cc = new THREE.Color(); r.getClearColor(cc); const ca = r.getClearAlpha(), sh = r.shadowMap.enabled; r.shadowMap.enabled = false;
+    for (const c of [0, 1]) for (const t of 'pnbrqk') {
+      const key = t + c, tpl = kit.tpl[key] || (kit.tpl[key] = buildPiece(t, kit.set, kit.mats[c], c)), m = tpl.root.clone(true);
+      for (const nm of ['base', 'ring']) { const o = m.getObjectByName(nm); if (o) o.parent.remove(o); }
+      if (kit.set === 'staunton' && t === 'n') { m.traverse(o => { if (o.isMesh && o.parent === m.children[0]) { /* knight already turned in profile */ } }); }
+      sc.add(m); cam.position.set(12, 0.85 + 0.9, 0); cam.lookAt(0, 0.85, 0);
+      r.setRenderTarget(rt); r.setClearColor(0x000000, 0); r.clear(); r.render(sc, cam); r.readRenderTargetPixels(rt, 0, 0, R, R, buf); sc.remove(m);
+      const raw = document.createElement('canvas'); raw.width = raw.height = R; const rx = raw.getContext('2d'), id = rx.createImageData(R, R);
+      for (let y = 0; y < R; y++) id.data.set(buf.subarray((R - 1 - y) * R * 4, (R - y) * R * 4), y * R * 4); rx.putImageData(id, 0, 0);
+      const sil = document.createElement('canvas'); sil.width = sil.height = R; const sx = sil.getContext('2d'); sx.drawImage(raw, 0, 0); sx.globalCompositeOperation = 'source-in'; sx.fillStyle = c === 0 ? '#2b1d12' : '#0d0a08'; sx.fillRect(0, 0, R, R);
+      const cv = document.createElement('canvas'); cv.width = cv.height = R; const cx = cv.getContext('2d');
+      for (let a = 0; a < 16; a++) cx.drawImage(sil, Math.cos(a / 16 * 6.283) * 4.5, Math.sin(a / 16 * 6.283) * 4.5 + 2.5);
+      cx.drawImage(raw, 0, 0);
+      const tx = new THREE.CanvasTexture(cv); tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 8; tx.generateMipmaps = true; tx.minFilter = THREE.LinearMipmapLinearFilter; out[key] = tx;
+    }
+    r.setRenderTarget(pr); r.setClearColor(cc, ca); r.shadowMap.enabled = sh; rt.dispose(); return kit.flat = out;
+  }
+  attachIcon(p) {
+    if (p.icon) return; const tx = this.flatIcons(this.kit)[p.type + p.color]; if (!this.iconGeo) this.iconGeo = new THREE.PlaneGeometry(1.18, 1.18);
+    const m = new THREE.Mesh(this.iconGeo, new THREE.MeshBasicMaterial({ map: tx, transparent: true, depthWrite: false, toneMapped: false })); m.rotation.x = -Math.PI / 2; m.rotation.z = this.flatYaw || 0; m.renderOrder = 3; m.userData.piece = p;
+    this.fx.add(m); p.icon = m; this.syncIcon(p);
+  }
+  syncIcon(p) {
+    const m = p.icon; if (!m) return; const k = Math.cos(this.flatYaw || 0), sc = p.root.scale.x; m.position.set(p.root.position.x, 0.05 + Math.max(0, p.root.position.y) * 0.4, p.root.position.z - 0.12 * k); m.scale.setScalar(sc); m.visible = p.root.visible;
+  }
+  detachIcon(p) { if (!p.icon) return; this.fx.remove(p.icon); p.icon.material.dispose(); p.icon = null; }
+  /** on = flat 2D board, off = normal 3D */
+  set2D(on, yaw = 0) {
+    this.is2D = on; this.flatYaw = yaw; const c = this.controls;
+    if (on) { c.minPolarAngle = 0.02; c.maxPolarAngle = 0.02; c.minAzimuthAngle = yaw; c.maxAzimuthAngle = yaw; }
+    else { c.minPolarAngle = 0.12; c.maxPolarAngle = 1.36; c.minAzimuthAngle = -Infinity; c.maxAzimuthAngle = Infinity; }
+    for (const p of this.all) { if (on) { this.attachIcon(p); if (p.icon) p.icon.rotation.z = yaw; } else this.detachIcon(p); p.content.visible = !on; if (p.base) p.base.visible = !on; }
+    if (this.legendMesh) this.legendMesh.visible = this.labels === 'border';
+    this.setSph(yaw, on ? 0.02 : 0.88, this.fitDist || 22); this.poke && this.poke();
+  }
   /* ---------- name tags: float the piece's NAME above chosen pieces for a few seconds ---------- */
   tagTexture(name, color) {
     const k = name + color; this.tagCache = this.tagCache || {}; if (this.tagCache[k]) return this.tagCache[k];
@@ -127,6 +169,7 @@ export class ChessScene {
     const h = this.hl; if ((h.check && h.check.visible) || (h.hintB && h.hintB.visible) || (h.sel && h.sel.visible)) return true;
     if (this.legendGlows && this.legendGlows[0].visible) return true;
     if (this.tags && this.tags.length) return true;
+    if (this.is2D && this.tweens.length) return true;
     for (const sp of this.sprites) if (sp.userData.life > 0) return true; return false;
   }
   /* ---------- setup ---------- */
@@ -265,7 +308,7 @@ export class ChessScene {
   }
 
   /* ---------- pieces ---------- */
-  drop(p) { this.pieceRoot.remove(p.root); if (p.base) this.pieceRoot.remove(p.base); this.all.delete(p); }
+  drop(p) { this.detachIcon(p); this.pieceRoot.remove(p.root); if (p.base) this.pieceRoot.remove(p.base); this.all.delete(p); }
   clearPieces() { this.hideTags(); for (const p of [...this.all]) this.drop(p); this.pieces.clear(); }
   loadPosition(b) { this.clearPieces(); for (let sq = 0; sq < 64; sq++) { const p = b[sq]; if (p) this.spawn(TYPE_CH[p & 7], p >> 3, sq); } this.clearMarks(); }
   at(sq) { return this.pieces.get(sq); }
@@ -279,9 +322,9 @@ export class ChessScene {
     const bm = content.getObjectByName('base');          // animals keep a flat base (+ team ring) that glides on the board while the animal moves above it
     if (bm) { p.base = new THREE.Group(); for (const nm of ['base', 'ring']) { const m = content.getObjectByName(nm); if (m) { m.parent.remove(m); p.base.add(m); } } this.pieceRoot.add(p.base); }
     const mark = o => o.traverse(m => { if (m.isMesh) m.userData.piece = p; }); mark(content); if (p.base) mark(p.base);
-    this.all.add(p); this.addLabel(p);
+    this.all.add(p); this.addLabel(p); if (this.is2D) { p.content.visible = false; if (p.base) p.base.visible = false; }
     const [x, z] = sqPos(sq); root.position.set(x, 0.002, z); root.rotation.y = p.restYaw; root.scale.setScalar(scale);
-    this.pieceRoot.add(root); this.pieces.set(sq, p); if (p.base) p.base.position.set(x, 0.002, z); return p;
+    this.pieceRoot.add(root); this.pieces.set(sq, p); if (p.base) p.base.position.set(x, 0.002, z); if (this.is2D) this.attachIcon(p); return p;
   }
   updateLegend() {
     if (!this.legendMesh) return; const on = this.labels === 'border'; this.legendMesh.visible = on;
@@ -437,6 +480,7 @@ export class ChessScene {
     if (this.hl.hintB && this.hl.hintB.visible) { const o = 0.5 + 0.3 * Math.sin(this.t * 6); this.hl.hintA.material.opacity = o * 0.7; this.hl.hintB.material.opacity = o; }
     if (this.legendGlows) for (const q of this.legendGlows) if (q.visible) { const k = 1.1 + 0.15 * Math.sin(this.t * 6); q.scale.set(k, k, 1); }
     if (this.hl.sel && this.hl.sel.visible) this.hl.sel.material.opacity = 0.4 + 0.15 * Math.sin(this.t * 5);
+    if (this.is2D) for (const p of this.all) this.syncIcon(p);
     this.updateTags(dt);
     if (this.bgFx) this.bgFx.update(dt, this.t);
     for (const p of this.all) if (p.base) { p.base.position.set(p.root.position.x, 0.002, p.root.position.z); p.base.scale.setScalar(p.root.scale.x); }
