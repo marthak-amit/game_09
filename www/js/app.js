@@ -57,7 +57,7 @@ $('#finder').addEventListener('click', e => {
   scene.showTags([t], 3800); const [g, name, desc] = PINFO[Save.d.set][t]; const el = $('#pinfo'); el.className = 'pinfo w'; el.innerHTML = `<div class="pg2">${g}</div><div><b>${name}</b><span>${desc}</span></div>`;
   clearTimeout(pinfoT); pinfoT = setTimeout(hidePieceInfo, 4200);
 });
-function introNames() { if (Save.d.introTags !== false && G.mode !== 'puzzle') setTimeout(() => { if (G.mode && !G.over && !modalOpen()) scene.showTags(null, 4800); }, 900); }
+function introNames() { if (Save.d.introNames === true && G.mode !== 'puzzle') setTimeout(() => { if (G.mode && !G.over && !modalOpen()) scene.showTags(null, 4800); }, 900); }
 function syncQuick() {
   renderFinder();
   const b = BOARDS[Save.d.board] || BOARDS.bw, c = Save.d.board === 'custom' ? Save.d.customBoard : b;
@@ -761,7 +761,7 @@ function showSettings() {
   sheet(`<div class="sh-head"><h2>⚙ Settings</h2><button class="x" data-act="close" aria-label="Close">✕</button></div>
    <div class="sh-body">
    <div class="sec">Sound &amp; feel</div><div class="grp">${tg('sound', '🔊', 'Sound effects')}${tg('music', '🎵', 'Music')}${tg('vib', '📳', 'Vibration')}</div>
-   <div class="sec">Gameplay</div><div class="grp">${tg('legal', '🟢', 'Show legal moves', 'Dots on squares a piece can reach')}${tg('cinema', '🎬', 'Cinematic move camera', 'Camera follows every move')}${tg('introTags', '🏷', 'Show piece names at the start', 'Names float above the pieces for a few seconds')}
+   <div class="sec">Gameplay</div><div class="grp">${tg('legal', '🟢', 'Show legal moves', 'Dots on squares a piece can reach')}${tg('cinema', '🎬', 'Cinematic move camera', 'Camera follows every move')}${tg('introNames', '🏷', 'Show piece names at the start', 'Small name labels for a few seconds')}
      <div class="row-s col2">${lbl('🧑‍🤝‍🧑', 'Pass &amp; Play board', 'Fixed = sit face to face, board never turns')}${`<div class="seg"><button class="${d.autoRotate ? 'on' : ''}" data-act="rot" data-a="auto">🔄 Turns</button><button class="${!d.autoRotate ? 'on' : ''}" data-act="rot" data-a="fixed">🪑 Fixed</button></div>`}</div></div>
    <div class="sec">Appearance</div><div class="grp">
      <div class="row-s col2">${lbl('🐴', 'Piece style')}${seg('set', [['royal', '🐴 Royal Animals'], ['staunton', '♞ Classic']])}</div>

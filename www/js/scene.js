@@ -85,34 +85,41 @@ export class ChessScene {
   /* ---------- name tags: float the piece's NAME above chosen pieces for a few seconds ---------- */
   tagTexture(name, color) {
     const k = name + color; this.tagCache = this.tagCache || {}; if (this.tagCache[k]) return this.tagCache[k];
-    const c = document.createElement('canvas'); c.width = 320; c.height = 112; const x = c.getContext('2d'), w = color === 0;
-    x.shadowColor = 'rgba(0,0,0,.6)'; x.shadowBlur = 10; x.shadowOffsetY = 3; x.fillStyle = w ? '#f6ecd2' : '#1b1514'; x.strokeStyle = w ? '#d9a62e' : '#d0323b'; x.lineWidth = 8;
-    x.beginPath(); x.roundRect(10, 12, 300, 68, 34); x.fill(); x.shadowColor = 'transparent'; x.stroke();
-    x.beginPath(); x.moveTo(145, 80); x.lineTo(160, 104); x.lineTo(175, 80); x.closePath(); x.fillStyle = w ? '#f6ecd2' : '#1b1514'; x.fill();
-    x.font = '900 40px system-ui,Segoe UI,Roboto,sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = w ? '#2a1a0a' : '#f6ecd2'; x.fillText(name, 160, 48);
+    const W = 340, H = 150, c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d'), team = color === 0 ? '#f0c24a' : '#ff5a5f';
+    x.font = '800 38px system-ui,Segoe UI,Roboto,sans-serif'; const tw = x.measureText(name).width, pw = Math.min(W - 16, tw + 92), px = (W - pw) / 2, ph = 66, py = 8;
+    x.shadowColor = 'rgba(0,0,0,.55)'; x.shadowBlur = 12; x.shadowOffsetY = 4;
+    const g = x.createLinearGradient(0, py, 0, py + ph); g.addColorStop(0, 'rgba(38,28,20,.94)'); g.addColorStop(1, 'rgba(14,9,5,.94)');
+    x.fillStyle = g; x.beginPath(); x.roundRect(px, py, pw, ph, ph / 2); x.fill(); x.shadowColor = 'transparent';
+    x.lineWidth = 3; x.strokeStyle = 'rgba(255,255,255,.28)'; x.stroke();
+    x.fillStyle = team; x.beginPath(); x.arc(px + 33, py + ph / 2, 11, 0, 7); x.fill();                      // team dot
+    x.fillStyle = '#fff6e0'; x.textAlign = 'left'; x.textBaseline = 'middle'; x.fillText(name, px + 56, py + ph / 2 + 2);
+    x.strokeStyle = team; x.lineWidth = 4; x.lineCap = 'round'; x.beginPath(); x.moveTo(W / 2, py + ph + 2); x.lineTo(W / 2, H - 12); x.stroke();   // leader line to the piece
+    x.fillStyle = team; x.beginPath(); x.arc(W / 2, H - 10, 7, 0, 7); x.fill();
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return this.tagCache[k] = t;
   }
-  /** types: array of 'pnbrqk' (or null = every piece except pawns). Pieces of those types bounce and show a name tag for `ms`. */
+  /** types: array of 'pnbrqk' (or null = every piece except pawns). Chosen pieces get a glowing ring and a small name label for `ms`. */
   showTags(types, ms = 3600) {
-    const NM = this.set === 'royal' ? { p: 'SOLDIER', n: 'HORSE', b: 'CAMEL', r: 'ELEPHANT', q: 'QUEEN', k: 'KING' } : { p: 'PAWN', n: 'KNIGHT', b: 'BISHOP', r: 'ROOK', q: 'QUEEN', k: 'KING' };
+    const NM = this.set === 'royal' ? { p: 'Soldier', n: 'Horse', b: 'Camel', r: 'Elephant', q: 'Queen', k: 'King' } : { p: 'Pawn', n: 'Knight', b: 'Bishop', r: 'Rook', q: 'Queen', k: 'King' };
     this.hideTags(); this.tags = this.tags || [];
+    if (!this.ringGeo) this.ringGeo = new THREE.RingGeometry(0.46, 0.58, 48).rotateX(-Math.PI / 2);
     for (const p of this.all) {
       if (types ? !types.includes(p.type) : p.type === 'p') continue;
       const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.tagTexture(NM[p.type], p.color), transparent: true, depthTest: false, depthWrite: false, toneMapped: false, fog: false }));
-      sp.scale.set(1.3, 0.455, 1); sp.renderOrder = 20; this.fx.add(sp); this.tags.push({ sp, p, t: 0, ms: ms / 1000, lift: (p.sq & 1) ? 0.3 : 0 });
+      sp.center.set(0.5, 0); sp.scale.set(1.6, 0.7, 1); sp.renderOrder = 20; this.fx.add(sp);
+      const ring = new THREE.Mesh(this.ringGeo, new THREE.MeshBasicMaterial({ color: p.color === 0 ? 0xf0c24a : 0xff5a5f, transparent: true, opacity: 0, depthWrite: false, toneMapped: false })); ring.renderOrder = 4; this.fx.add(ring);
+      this.tags.push({ sp, ring, p, t: 0, ms: ms / 1000 });
     }
     this.poke && this.poke();
   }
-  hideTags() { for (const g of this.tags || []) { this.fx.remove(g.sp); g.sp.material.dispose(); g.p.tilt.scale.setScalar(1); } this.tags = []; }
+  hideTags() { for (const g of this.tags || []) { this.fx.remove(g.sp, g.ring); g.sp.material.dispose(); g.ring.material.dispose(); } this.tags = []; }
   updateTags(dt) {
     if (!this.tags || !this.tags.length) return;
     for (let i = this.tags.length - 1; i >= 0; i--) {
       const g = this.tags[i]; g.t += dt; const k = g.t / g.ms, p = g.p;
-      if (k >= 1 || !this.all.has(p)) { this.fx.remove(g.sp); g.sp.material.dispose(); p.tilt.scale.setScalar(1); this.tags.splice(i, 1); continue; }
-      const pop = Math.min(1, g.t / 0.25), fade = k > 0.85 ? (1 - k) / 0.15 : 1;
-      g.sp.position.set(p.root.position.x, p.root.position.y + (p.height || 1) * 0.95 + 0.5 + g.lift + 0.04 * Math.sin(this.t * 5), p.root.position.z);
-      g.sp.material.opacity = fade * pop; g.sp.scale.set(1.3 * (0.6 + 0.4 * pop), 0.455 * (0.6 + 0.4 * pop), 1);
-      const b = 1 + 0.07 * Math.sin(this.t * 9) * fade; p.tilt.scale.setScalar(b);
+      if (k >= 1 || !this.all.has(p)) { this.fx.remove(g.sp, g.ring); g.sp.material.dispose(); g.ring.material.dispose(); this.tags.splice(i, 1); continue; }
+      const pop = Math.min(1, g.t / 0.28), ease = 1 - Math.pow(1 - pop, 3), fade = k > 0.85 ? (1 - k) / 0.15 : 1, x = p.root.position.x, z = p.root.position.z;
+      g.sp.position.set(x, p.root.position.y + (p.height || 1) + 0.04 + (1 - ease) * -0.25, z); g.sp.material.opacity = fade * ease;
+      g.ring.position.set(x, 0.03, z); const rs = 0.9 + 0.12 * Math.sin(this.t * 6); g.ring.scale.set(rs, 1, rs); g.ring.material.opacity = fade * (0.55 + 0.3 * Math.sin(this.t * 6));
     }
   }
   /** any highlight that pulses or particle still alive? */
