@@ -47,7 +47,7 @@ export class ChessScene {
     const pm = new THREE.PMREMGenerator(r); sc.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; sc.environmentIntensity = 0.45; pm.dispose();
     this.camera = new THREE.PerspectiveCamera(54, 1, 0.5, 150);
     const c = this.controls = new OrbitControls(this.camera, canvas);
-    c.enablePan = false; c.enableDamping = true; c.dampingFactor = 0.09; c.rotateSpeed = 0.65; c.zoomSpeed = 0.7; c.minPolarAngle = 0.12; c.maxPolarAngle = 1.36; c.target.set(0, 0.1, 0.5);
+    c.enablePan = false; c.enableDamping = true; c.dampingFactor = 0.09; c.rotateSpeed = 0.65; c.zoomSpeed = 0.7; c.minPolarAngle = 0.02; c.maxPolarAngle = 1.36; c.target.set(0, 0.1, 0.5);
     c.autoRotateSpeed = 0.9;
     // lights
     const hemi = this.hemi = new THREE.HemisphereLight(0xfff0dc, 0x2a1a10, 0.35); sc.add(hemi);
@@ -85,41 +85,44 @@ export class ChessScene {
   /* ---------- flat 2D view: clean top-down board with flat piece icons (renders of the same pieces, outlined) ---------- */
   flatIcons(kit) {
     if (kit.flat) return kit.flat;
-    const R = 256, r = this.renderer, rt = new THREE.WebGLRenderTarget(R, R, { samples: 4, colorSpace: THREE.SRGBColorSpace });
+    const R = 320, r = this.renderer, rt = new THREE.WebGLRenderTarget(R, R, { samples: 4, colorSpace: THREE.SRGBColorSpace });
     const sc = new THREE.Scene(); sc.environment = this.scene.environment; sc.environmentIntensity = 0.85;
     sc.add(new THREE.HemisphereLight(0xffffff, 0x8a7a66, 1.15)); const dl = new THREE.DirectionalLight(0xffffff, 2.3); dl.position.set(5, 7, 4); sc.add(dl);
-    const half = 0.98, cam = new THREE.OrthographicCamera(-half, half, half, -half, 0.1, 60), buf = new Uint8Array(R * R * 4), out = {};
+    const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 60), buf = new Uint8Array(R * R * 4), out = {}, FH = { p: 0.74, n: 0.92, b: 0.98, r: 0.86, q: 1.0, k: 1.08 };   // icon heights in board squares
     const pr = r.getRenderTarget(), cc = new THREE.Color(); r.getClearColor(cc); const ca = r.getClearAlpha(), sh = r.shadowMap.enabled; r.shadowMap.enabled = false;
     for (const c of [0, 1]) for (const t of 'pnbrqk') {
       const key = t + c, tpl = kit.tpl[key] || (kit.tpl[key] = buildPiece(t, kit.set, kit.mats[c], c)), m = tpl.root.clone(true);
       for (const nm of ['base', 'ring']) { const o = m.getObjectByName(nm); if (o) o.parent.remove(o); }
-      if (kit.set === 'staunton' && t === 'n') { m.traverse(o => { if (o.isMesh && o.parent === m.children[0]) { /* knight already turned in profile */ } }); }
-      sc.add(m); cam.position.set(12, 0.85 + 0.9, 0); cam.lookAt(0, 0.85, 0);
+      sc.add(m); const bx = new THREE.Box3().setFromObject(m), sz = bx.getSize(new THREE.Vector3()), ctr = bx.getCenter(new THREE.Vector3());
+      const half = Math.max(sz.y, sz.z) * 0.5 * 1.1; cam.left = -half; cam.right = half; cam.top = half; cam.bottom = -half; cam.updateProjectionMatrix();
+      cam.position.set(12, ctr.y, ctr.z); cam.lookAt(0, ctr.y, ctr.z);
       r.setRenderTarget(rt); r.setClearColor(0x000000, 0); r.clear(); r.render(sc, cam); r.readRenderTargetPixels(rt, 0, 0, R, R, buf); sc.remove(m);
       const raw = document.createElement('canvas'); raw.width = raw.height = R; const rx = raw.getContext('2d'), id = rx.createImageData(R, R);
       for (let y = 0; y < R; y++) id.data.set(buf.subarray((R - 1 - y) * R * 4, (R - y) * R * 4), y * R * 4); rx.putImageData(id, 0, 0);
-      const sil = document.createElement('canvas'); sil.width = sil.height = R; const sx = sil.getContext('2d'); sx.drawImage(raw, 0, 0); sx.globalCompositeOperation = 'source-in'; sx.fillStyle = c === 0 ? '#2b1d12' : '#0d0a08'; sx.fillRect(0, 0, R, R);
-      const cv = document.createElement('canvas'); cv.width = cv.height = R; const cx = cv.getContext('2d');
-      cx.fillStyle = 'rgba(0,0,0,.3)'; cx.beginPath(); cx.ellipse(R / 2, R - 17, R * 0.27, 8, 0, 0, 7); cx.fill();
-      for (let a = 0; a < 16; a++) cx.drawImage(sil, Math.cos(a / 16 * 6.283) * 4.5, Math.sin(a / 16 * 6.283) * 4.5 + 2.5);
+      const sil = document.createElement('canvas'); sil.width = sil.height = R; const sx = sil.getContext('2d'); sx.drawImage(raw, 0, 0); sx.globalCompositeOperation = 'source-in'; sx.fillStyle = c === 0 ? '#2b1d12' : '#0b0807'; sx.fillRect(0, 0, R, R);
+      const cv = document.createElement('canvas'); cv.width = cv.height = R; const cx = cv.getContext('2d'), pad = (half - sz.y / 2) / (2 * half);
+      cx.fillStyle = 'rgba(0,0,0,.28)'; cx.beginPath(); cx.ellipse(R / 2, R * (1 - pad) - 3, R * 0.3, R * 0.03, 0, 0, 7); cx.fill();
+      for (let a = 0; a < 20; a++) cx.drawImage(sil, Math.cos(a / 20 * 6.283) * 5.5, Math.sin(a / 20 * 6.283) * 5.5);
       cx.drawImage(raw, 0, 0);
-      const tx = new THREE.CanvasTexture(cv); tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 8; tx.generateMipmaps = true; tx.minFilter = THREE.LinearMipmapLinearFilter; out[key] = tx;
+      const tx = new THREE.CanvasTexture(cv); tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 8; tx.generateMipmaps = true; tx.minFilter = THREE.LinearMipmapLinearFilter;
+      out[key] = { tx, S: FH[t] * (2 * half) / sz.y, pad };     // plane size (squares) so the piece itself is FH[t] tall; pad = base height above the plane's bottom edge (fraction)
     }
     r.setRenderTarget(pr); r.setClearColor(cc, ca); r.shadowMap.enabled = sh; rt.dispose(); return kit.flat = out;
   }
   attachIcon(p) {
-    if (p.icon) return; const tx = this.flatIcons(this.kit)[p.type + p.color]; if (!this.iconGeo) this.iconGeo = new THREE.PlaneGeometry(1.18, 1.18);
-    const m = new THREE.Mesh(this.iconGeo, new THREE.MeshBasicMaterial({ map: tx, transparent: true, depthWrite: false, toneMapped: false })); m.rotation.x = -Math.PI / 2; m.renderOrder = 3; m.userData.piece = p;
+    if (p.icon) return; const ic = this.flatIcons(this.kit)[p.type + p.color]; if (!this.iconGeo) this.iconGeo = new THREE.PlaneGeometry(1, 1);
+    const m = new THREE.Mesh(this.iconGeo, new THREE.MeshBasicMaterial({ map: ic.tx, transparent: true, depthWrite: false, toneMapped: false })); m.userData.ic = ic; m.rotation.x = -Math.PI / 2; m.renderOrder = 3; m.userData.piece = p;
     this.fx.add(m); p.icon = m; this.syncIcon(p);
   }
   syncIcon(p) {
-    const m = p.icon; if (!m) return; const th = this.flatYaw || 0, y = Math.max(0, p.root.position.y), sc = p.root.scale.x * (1 + y * 0.3);
-    m.position.set(p.root.position.x - 0.12 * Math.sin(th), 0.05 + y * 0.4, p.root.position.z - 0.12 * Math.cos(th)); m.rotation.z = th; m.scale.setScalar(sc); m.visible = p.root.visible;
+    const m = p.icon; if (!m) return; const th = this.flatYaw || 0, y = Math.max(0, p.root.position.y), ic = m.userData.ic, sc = p.root.scale.x * (1 + y * 0.3), S = ic.S * sc;
+    const up = -0.36 + (S / 2 - ic.pad * S);      // piece base sits a little below the square's centre; icon centre is S/2 above it
+    m.position.set(p.root.position.x - up * Math.sin(th), 0.05 + y * 0.4, p.root.position.z - up * Math.cos(th)); m.rotation.z = th; m.scale.setScalar(S); m.visible = p.root.visible;
   }
   detachIcon(p) { if (!p.icon) return; this.fx.remove(p.icon); p.icon.material.dispose(); p.icon = null; }
   /** swap between the 3D pieces and the flat icons; chosen automatically from the camera angle (high angle = clear flat icons, low angle = real 3D) */
   setFlat(on) {
-    if (this.is2D === on) return; this.is2D = on;
+    if (this.is2D === on) return; this.is2D = on; if (on && this.legendGlows) for (const q of this.legendGlows) q.visible = false; if (this.legendMesh) this.legendMesh.visible = !on && this.labels === 'border';
     for (const p of this.all) { if (on) this.attachIcon(p); else this.detachIcon(p); p.content.visible = !on; if (p.base) p.base.visible = !on; }
     this.poke && this.poke();
   }
@@ -191,10 +194,10 @@ export class ChessScene {
   }
   /** keep the whole board in view for the current aspect ratio */
   fit() {
-    const vf = this.camera.fov * Math.PI / 180, hf = 2 * Math.atan(Math.tan(vf / 2) * this.camera.aspect);
+    const vf = 54 * Math.PI / 180, hf = 2 * Math.atan(Math.tan(vf / 2) * this.camera.aspect);
     const need = 4.55 / Math.tan(Math.min(hf, vf * 1.4) / 2);
     this.fitDist = Math.max(13, need);
-    this.controls.minDistance = this.fitDist * 0.5; this.controls.maxDistance = this.fitDist * 1.35;
+    this.controls.minDistance = this.fitDist * 0.5; this.controls.maxDistance = this.fitDist * 3.0;
     if (!this._fitted) { this._fitted = true; this.setRadius(this.fitDist); }
   }
   setRadius(r) { const o = this.camera.position.clone().sub(this.controls.target).setLength(r); this.camera.position.copy(this.controls.target).add(o); }
@@ -272,7 +275,7 @@ export class ChessScene {
   async setBackground(key) {
     const L = BG_LOOK[key] || BG_LOOK.wood; const tok = ++this.bgTok; const tex = await makeTableTexture(L.table, this.renderer); if (tok !== this.bgTok) return; this.bgKey = key; const sc = this.scene;
     if (sc.background && sc.background.isTexture) sc.background.dispose(); sc.background = skyTexture([L.sky[0], L.sky[1], L.sky[1]]);
-    sc.fog.color.setHex(L.fog); sc.fog.near = L.near; sc.fog.far = L.far;
+    sc.fog.color.setHex(L.fog); sc.fog.near = this.fogN = L.near; sc.fog.far = this.fogF = L.far;
     if (this.tableMesh) { this.scene.remove(this.tableMesh); this.tableMesh.material.dispose(); this.tableMesh.geometry.dispose(); }
     const m = new THREE.MeshStandardMaterial({ map: tex, roughness: L.tRough, metalness: L.tMetal, envMapIntensity: L.tEnv });
     this.tableMesh = new THREE.Mesh(new THREE.PlaneGeometry(120, 120), m); this.tableMesh.rotation.x = -Math.PI / 2; this.tableMesh.position.y = -0.56; this.tableMesh.receiveShadow = true; this.scene.add(this.tableMesh);
@@ -330,7 +333,7 @@ export class ChessScene {
     this.pieceRoot.add(root); this.pieces.set(sq, p); if (p.base) p.base.position.set(x, 0.002, z); if (this.is2D) this.attachIcon(p); return p;
   }
   updateLegend() {
-    if (!this.legendMesh) return; const on = this.labels === 'border'; this.legendMesh.visible = on;
+    if (!this.legendMesh) return; const on = this.labels === 'border'; this.legendMesh.visible = on && !this.is2D;
     if (!on) return;
     if (this.legendSet !== this.set) {   // (re)paint the 16 border medallions for the current piece set
       if (this.legendTexs) for (const k in this.legendTexs) this.legendTexs[k].dispose();
@@ -342,7 +345,7 @@ export class ChessScene {
   legendFocus(type, color) {
     if (!this.legendGlows) this.legendGlows = [0, 1].map(() => { const q = this.quad(0xffffff, 0.9, 1.15, this.glowGold); q.renderOrder = 3; q.visible = false; return q; });
     for (const q of this.legendGlows) q.visible = false;
-    if (!type || this.labels !== 'border') return;
+    if (!type || this.labels !== 'border' || this.is2D) return;
     let n = 0; LEGEND_ORDER.forEach((t, f) => { if (t === type && n < 2) { const q = this.legendGlows[n++]; q.position.set(f - 3.5, 0.008, color === 0 ? 5.05 : -5.05); q.visible = true; } });
   }
   /* floating badge above each piece: what it is + which team (ivory = White, dark = Black, gold/red border) */
@@ -418,15 +421,19 @@ export class ChessScene {
   clearMarks() { this.ensureHl(); this.deselect(false); this.markLast(-1); this.markCheck(-1); this.showHint(-1); }
 
   /* ---------- camera ---------- */
+  /** looking straight down uses a narrow "telephoto" lens (square, undistorted board like a 2D app); low angles use the normal wide lens */
+  fovOf(phi) { const k = Math.min(1, Math.max(0, (phi - 0.45) / 0.5)), e = k * k * (3 - 2 * k); return 24 + (54 - 24) * e; }
   resetCamera(view, instant) {
-    const target = { white: [0, 0.5], black: [Math.PI, 0.5], whiteLow: [0, 0.95], blackLow: [Math.PI, 0.95], top: [this.controls.getAzimuthalAngle(), 0.14], side: [Math.PI / 2, 1.1] }[view] || [0, 0.5];
-    const r = (this.fitDist || 22) * (target[1] < 0.7 ? 0.93 : 1), tz = target[1] < 0.7 ? 1.3 : 0.5, t = this.controls.target;   // high view: look slightly further down the board so it sits higher, clear of the buttons
-    if (instant) { t.z = tz; this.setSph(target[0], target[1], r); return; }
-    const th0 = this.controls.getAzimuthalAngle(), ph0 = this.controls.getPolarAngle(), r0 = this.camera.position.distanceTo(t), z0 = t.z;
-    const dth = angDelta(th0, target[0]);
-    this.tween(0.8, e => { t.z = z0 + (tz - z0) * e; this.setSph(th0 + dth * e, ph0 + (target[1] - ph0) * e, r0 + (r - r0) * e); }, E.io);
+    const target = { white: [0, 0.03], black: [Math.PI, 0.03], whiteLow: [0, 0.95], blackLow: [Math.PI, 0.95], top: [this.controls.getAzimuthalAngle(), 0.14], side: [Math.PI / 2, 1.1] }[view] || [0, 0.03];
+    const t = this.controls.target, tz = target[1] < 0.5 ? 1.25 : 0.5, fit = this.fitDist || 22, K54 = Math.tan(27 * Math.PI / 180);
+    const app1 = fit * K54 * (target[1] < 0.5 ? 0.94 : 1);                                   // apparent size to keep (board width on screen)
+    const th0 = this.controls.getAzimuthalAngle(), ph0 = this.controls.getPolarAngle(), z0 = t.z, app0 = this.camera.position.distanceTo(t) * Math.tan(this.camera.fov * Math.PI / 360);
+    const dth = angDelta(th0, target[0]), set = e => { const ph = ph0 + (target[1] - ph0) * e, app = app0 + (app1 - app0) * e; t.z = z0 + (tz - z0) * e; this.setSph(th0 + dth * e, ph, app / Math.tan(this.fovOf(ph) * Math.PI / 360)); };
+    if (instant) { set(1); return; }
+    this.tween(0.8, set, E.io);
   }
   setSph(theta, phi, r) {
+    const f = this.fovOf(phi); if (Math.abs(this.camera.fov - f) > 0.05) { this.camera.fov = f; this.camera.updateProjectionMatrix(); }
     const t = this.controls.target; this.camera.position.set(t.x + r * Math.sin(phi) * Math.sin(theta), t.y + r * Math.cos(phi), t.z + r * Math.sin(phi) * Math.cos(theta)); this.controls.update();
   }
   setMenuSpin(on) { this.menuSpin = on; this.controls.autoRotate = on; }
@@ -483,6 +490,11 @@ export class ChessScene {
     if (this.hl.hintB && this.hl.hintB.visible) { const o = 0.5 + 0.3 * Math.sin(this.t * 6); this.hl.hintA.material.opacity = o * 0.7; this.hl.hintB.material.opacity = o; }
     if (this.legendGlows) for (const q of this.legendGlows) if (q.visible) { const k = 1.1 + 0.15 * Math.sin(this.t * 6); q.scale.set(k, k, 1); }
     if (this.hl.sel && this.hl.sel.visible) this.hl.sel.material.opacity = 0.4 + 0.15 * Math.sin(this.t * 5);
+    { const c = this.controls, d0 = this.camera.position.distanceTo(c.target);   // lens follows the camera's tilt; the distance is adjusted so the board keeps the same size on screen
+      if (this._lastD === undefined || Math.abs(d0 - this._lastD) > 1e-3) this._app = d0 * Math.tan(this.camera.fov * Math.PI / 360);   // distance was changed by the player / move camera
+      const f = this.fovOf(c.getPolarAngle());
+      if (Math.abs(this.camera.fov - f) > 0.05) { this.camera.fov = f; this.camera.updateProjectionMatrix(); const nd = this._app / Math.tan(f * Math.PI / 360), dir = this.camera.position.clone().sub(c.target).normalize(); this.camera.position.copy(c.target).addScaledVector(dir, nd); }
+      this._lastD = this.camera.position.distanceTo(c.target); const extra = Math.max(0, this._lastD - (this.fitDist || 20)); this.scene.fog.near = (this.fogN || 26) + extra; this.scene.fog.far = (this.fogF || 62) + extra; }
     this.updateFlat(); if (this.is2D) for (const p of this.all) this.syncIcon(p);
     this.updateTags(dt);
     if (this.bgFx) this.bgFx.update(dt, this.t);
