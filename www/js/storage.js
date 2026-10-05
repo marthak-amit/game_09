@@ -4,7 +4,7 @@ export const Save = {
   defaults() {
     return {
       coins: 150, noAds: false, v: 3, board: 'bw', boards: ['bw', 'wood', 'tournament', 'walnut', 'slate', 'custom'], customBoard: { light: '#f0d9b5', dark: '#b58863', finish: 'wood' }, bg: 'wood', bgs: ['wood'], pcolor: 'ivory', pcolors: ['ivory'], set: 'royal',
-      sound: true, music: true, vib: true, legal: true, cinema: true, labels: 'border', autoRotate: true, introNames: false, flatHigh: true, quality: 'auto', speed: 1,
+      sound: true, music: true, vib: true, legal: true, cinema: true, labels: 'border', autoRotate: true, introNames: false, viewMode: '3d', quality: 'auto', speed: 1,
       rating: 800, stats: { games: 0, wins: 0, draws: 0, losses: 0, best: 0 }, lastSetup: { level: 2, color: 'white', time: 'none' },
       daily: { last: '', streak: 0 }, puzzle: { next: 0, solved: {}, daily: '' }, adCoins: { date: '', n: 0 }, game: null, gamesPlayed: 0
     };

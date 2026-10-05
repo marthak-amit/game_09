@@ -35,7 +35,7 @@ const glyph = t => GL[Save.d.set][t];
 Save.load();
 for (const [k, v] of Object.entries(BOARDS)) if (!v.cost && !Save.d.boards.includes(k)) Save.d.boards.push(k);
 bus.toast = toast;
-const styleOpts = () => ({ board: Save.d.board, pcolor: Save.d.pcolor, set: Save.d.set, quality: Save.d.quality, speed: Save.d.speed, cinema: Save.d.cinema, labels: Save.d.labels, bg: Save.d.bg, custom: Save.d.customBoard, flatHigh: Save.d.flatHigh !== false });
+const styleOpts = () => ({ board: Save.d.board, pcolor: Save.d.pcolor, set: Save.d.set, quality: Save.d.quality, speed: Save.d.speed, cinema: Save.d.cinema, labels: Save.d.labels, bg: Save.d.bg, custom: Save.d.customBoard });
 const scene = new ChessScene($('#c'), styleOpts());
 const G = { mode: null, human: 0, level: 2, board: null, moves: [], sans: [], legal: [], over: false, busy: false, thinking: false, sel: -1, targets: [], clocks: [0, 0], tc: TIMES[0], hints: 0, undos: 0, paused: false, startFen: E.START_FEN, id: 0, tick: null, captured: [[], []], lastMove: null };
 
@@ -145,7 +145,7 @@ function showHome() {
   $('#btnContinue').classList.toggle('hidden', !d.game);
   $('#dotGift').classList.toggle('hidden', dailyState().claimed);
   $('#dotPuz').classList.toggle('hidden', d.puzzle.daily === todayStr());
-  scene.loadPosition(new E.Board().b); scene.setMenuSpin(true); scene.resetCamera('white', true); scene.controls.target.z = 0.5; scene.setSph(0.6, 0.9, scene.fitDist * 0.82);
+  scene.setMode('3d'); scene.loadPosition(new E.Board().b); scene.setMenuSpin(true); scene.resetCamera('white', true); scene.controls.target.z = 0.5; scene.setSph(0.6, 0.9, scene.fitDist * 0.82);
   scene.running = true;
 }
 function dailyState() {
@@ -173,6 +173,7 @@ function newGame(o, resume) {
   const st = G.board.status(); if (st.check) scene.markCheck(G.board.kingSq[G.board.turn]);
   $('#home').classList.add('hidden'); $('#hud').classList.remove('hidden');
   const view = (G.mode === 'ai' || G.mode === 'online') ? (G.human ? 'black' : 'white') : (G.board.turn ? 'black' : 'white');
+  applyViewMode(false);
   scene.resetCamera(G.mode === 'pvp' && !Save.d.autoRotate ? 'white' : view, !!resume ? false : false);
   setupBars(); updateHud(); startClock(); saveGame(); introNames();
   if (G.mode === 'ai' && G.board.turn !== G.human) aiMove();
@@ -375,10 +376,27 @@ function offer(kind) {
 ACT.offerAd = async kind => { if (await Ads.rewarded()) { if (kind === 'hint') G.hints += 3; else G.undos += 3; closeModal(); updateHud(); saveGame(); toast('+3 ' + (kind === 'hint' ? 'hints' : 'undos')); } };
 ACT.close = () => closeModal();
 let viewIdx = 0;
-/** camera views: in solo/online games only YOUR side + top + side (the opponent's side only confused players); Pass & Play keeps both sides */
+/* ---------- view: 3D (default) or 2D (flat top-down board with clear piece icons) ---------- */
+function currentSide() {
+  if (G.mode === 'ai' || G.mode === 'online' || G.mode === 'puzzle') return G.human ? 'black' : 'white';
+  return G.mode === 'pvp' && G.board && Save.d.autoRotate ? (G.board.turn ? 'black' : 'white') : 'white';
+}
+function syncViewUI() {
+  const two = scene.is2D; $('#hud').classList.toggle('v2d', two);
+  for (const b of document.querySelectorAll('#vm button')) b.classList.toggle('on', b.dataset.m === (two ? '2d' : '3d'));
+}
+function applyViewMode(camera) { scene.setMode(G.mode && Save.d.viewMode === '2d' ? '2d' : '3d'); syncViewUI(); if (camera) scene.resetCamera(currentSide()); }
+function setViewMode(m) {
+  if ((Save.d.viewMode || '3d') === m && (m === '2d') === scene.is2D) return; Save.d.viewMode = m; Save.save(); viewIdx = 0; applyViewMode(true); Sfx.click(); Track.event('view_mode', { mode: m });
+  if (document.querySelector('#modal:not(.hidden) .sh-body')) showSettings();
+}
+$('#vm').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setViewMode(b.dataset.m); });
+ACT.vmode = m => setViewMode(m);
+/** camera views (3D): in solo/online games only YOUR side + top + side (the opponent's side only confused players); Pass & Play keeps both sides */
 function viewList() {
-  if (G.mode === 'ai' || G.mode === 'online' || G.mode === 'puzzle') { const m = G.human ? 'black' : 'white'; return [[m, 'Your side – clear view'], [m + 'Low', '3D low angle'], ['side', 'Side view']]; }
-  return [['white', 'White side – clear view'], ['black', 'Black side – clear view'], ['whiteLow', '3D low angle'], ['side', 'Side view']];
+  if (scene.is2D) return [[currentSide(), 'Your side']];
+  if (G.mode === 'ai' || G.mode === 'online' || G.mode === 'puzzle') return [[G.human ? 'black' : 'white', 'Your side'], ['top', 'Top-down view'], ['side', 'Side view']];
+  return [['white', 'White side'], ['black', 'Black side'], ['top', 'Top-down view'], ['side', 'Side view']];
 }
 function cycleView() { const V = viewList(); viewIdx = (viewIdx + 1) % V.length; scene.resetCamera(V[viewIdx][0]); toast(V[viewIdx][1]); }
 $('#btnUndo').onclick = () => { Sfx.click(); doUndo(); };
@@ -761,9 +779,10 @@ function showSettings() {
   sheet(`<div class="sh-head"><h2>⚙ Settings</h2><button class="x" data-act="close" aria-label="Close">✕</button></div>
    <div class="sh-body">
    <div class="sec">Sound &amp; feel</div><div class="grp">${tg('sound', '🔊', 'Sound effects')}${tg('music', '🎵', 'Music')}${tg('vib', '📳', 'Vibration')}</div>
-   <div class="sec">Gameplay</div><div class="grp">${tg('flatHigh', '🔍', 'Clear icons in high view', 'Flat piece icons when looking from above')}${tg('legal', '🟢', 'Show legal moves', 'Dots on squares a piece can reach')}${tg('cinema', '🎬', 'Cinematic move camera', 'Camera follows every move')}${tg('introNames', '🏷', 'Show piece names at the start', 'Small name labels for a few seconds')}
+   <div class="sec">Gameplay</div><div class="grp">${tg('legal', '🟢', 'Show legal moves', 'Dots on squares a piece can reach')}${tg('cinema', '🎬', 'Cinematic move camera', 'Camera follows every move')}${tg('introNames', '🏷', 'Show piece names at the start', 'Small name labels for a few seconds')}
      <div class="row-s col2">${lbl('🧑‍🤝‍🧑', 'Pass &amp; Play board', 'Fixed = sit face to face, board never turns')}${`<div class="seg"><button class="${d.autoRotate ? 'on' : ''}" data-act="rot" data-a="auto">🔄 Turns</button><button class="${!d.autoRotate ? 'on' : ''}" data-act="rot" data-a="fixed">🪑 Fixed</button></div>`}</div></div>
    <div class="sec">Appearance</div><div class="grp">
+     <div class="row-s col2">${lbl('🧊', 'Board view', '3D board, or a flat top-down 2D board with clear icons')}<div class="seg"><button class="${d.viewMode !== '2d' ? 'on' : ''}" data-act="vmode" data-a="3d">3D</button><button class="${d.viewMode === '2d' ? 'on' : ''}" data-act="vmode" data-a="2d">2D</button></div></div>
      <div class="row-s col2">${lbl('🐴', 'Piece style')}${seg('set', [['royal', '🐴 Royal Animals'], ['staunton', '♞ Classic']])}</div>
      <div class="row-s col2">${lbl('🎨', 'Board colours')}<div class="swgrid">${Object.entries(BOARDS).filter(([k]) => d.boards.includes(k)).map(([k, v]) => `<button class="swb ${d.board === k ? 'on' : ''}" data-act="pick" data-a="board:${k}"><i style="background:${bsw(k, v)}"></i><small>${k === 'custom' ? 'Custom' : v.name}</small></button>`).join('')}<button class="swb more" data-act="toShopBoards"><i>＋</i><small>More</small></button></div>
        ${d.board === 'custom' ? `<div class="custom"><label>Light squares<input type="color" data-cb="light" value="${d.customBoard.light}"></label><label>Dark squares<input type="color" data-cb="dark" value="${d.customBoard.dark}"></label></div>
@@ -779,7 +798,7 @@ function showSettings() {
 }
 ACT.rot = v => { setBoardMode(v === 'fixed'); showSettings(); };
 ACT.settings = () => showSettings();
-ACT.tog = k => { Save.d[k] = !Save.d[k]; Save.save(); if (k === 'cinema' || k === 'flatHigh') applyStyle(); if (k === 'music') Sfx.music(Save.d.music); if (k === 'sound' && !Save.d.sound) Sfx.music(false); showSettings(); };
+ACT.tog = k => { Save.d[k] = !Save.d[k]; Save.save(); if (k === 'cinema') applyStyle(); if (k === 'music') Sfx.music(Save.d.music); if (k === 'sound' && !Save.d.sound) Sfx.music(false); showSettings(); };
 ACT.pick = a => { const [k, v] = a.split(':'); Save.d[k] = k === 'speed' ? +v : v; Save.save(); applyStyle(); if (G.board && G.mode && k === 'set') { updateHud(); } showSettings(); };
 ACT.toShopBg = () => { shopTab = 'scenes'; showShop(); }; ACT.toShopBoards = () => { shopTab = 'boards'; showShop(); };
 ACT.cfinish = f => { Save.d.customBoard.finish = f; Save.save(); applyStyle(); showSettings(); };
@@ -847,7 +866,7 @@ async function startPuzzle(idx, daily) {
   G.board = new E.Board(pz.fen); G.startFen = pz.fen; G.human = G.board.turn; G.tc = TIMES[0]; G.moves = []; G.sans = []; G.over = false; G.busy = false; G.thinking = false; G.paused = false;
   G.sel = -1; G.targets = []; G.captured = [[], []]; G.lastMove = null; G.hints = 1; G.undos = 0; G.legal = G.board.legal();
   scene.setMenuSpin(false); scene.loadPosition(G.board.b); scene.clearMarks(); if (G.board.inCheck()) scene.markCheck(G.board.kingSq[G.board.turn]);
-  $('#home').classList.add('hidden'); $('#hud').classList.remove('hidden'); viewIdx = 0; endBgPreview(); scene.resetCamera(G.human ? 'black' : 'white');
+  $('#home').classList.add('hidden'); $('#hud').classList.remove('hidden'); viewIdx = 0; endBgPreview(); applyViewMode(false); scene.resetCamera(G.human ? 'black' : 'white');
   setupBars(); updateHud(); $('#nHint').textContent = '💡';
   toast(`Mate in ${pz.n} · ${G.human ? 'Black' : 'White'} to move`, 2600);
 }

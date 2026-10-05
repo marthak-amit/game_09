@@ -13,7 +13,7 @@ Every piece looks like what it is — and **moves like it**:
 Prefer tournament pieces? Settings → *Piece style* → **Classic Staunton** (carved horse-head knight, crenellated rook, mitre bishop).
 
 ## Always know who is who
-- **Clear high-angle view (default)** – the board is seen from high above and the pieces are drawn as clean, outlined side-view icons (horse, camel, elephant…) so nothing is ambiguous; lower the camera (View → *3D low angle*) and the real 3D pieces appear. Switch in Settings → *Clear icons in high view*
+- **2D / 3D switch** – small *3D | 2D* buttons next to the turn pill (also in Settings → Board view). **3D is the default.** 2D shows a flat, top-down square board with big outlined piece icons (horse, camel, elephant… in profile); every feature works the same in both views.
 - **Each animal has its own colour** – Horse = ivory / black, Camel = sandy gold / brown, Elephant = steel blue-grey (lighter for White, darker for Black)
 - **Piece finder strip** above your player bar: tap Elephant / Horse / Camel / Queen / King / Soldier and every piece of that kind bounces and shows its **name tag** (plus a one-line description)
 - **Name tags at the start** of every game (switch off in Settings → Show piece names at the start)

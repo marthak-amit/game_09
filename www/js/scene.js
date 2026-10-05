@@ -47,7 +47,7 @@ export class ChessScene {
     const pm = new THREE.PMREMGenerator(r); sc.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; sc.environmentIntensity = 0.45; pm.dispose();
     this.camera = new THREE.PerspectiveCamera(54, 1, 0.5, 150);
     const c = this.controls = new OrbitControls(this.camera, canvas);
-    c.enablePan = false; c.enableDamping = true; c.dampingFactor = 0.09; c.rotateSpeed = 0.65; c.zoomSpeed = 0.7; c.minPolarAngle = 0.02; c.maxPolarAngle = 1.36; c.target.set(0, 0.1, 0.5);
+    c.enablePan = false; c.enableDamping = true; c.dampingFactor = 0.09; c.rotateSpeed = 0.65; c.zoomSpeed = 0.7; c.minPolarAngle = 0.12; c.maxPolarAngle = 1.36; c.target.set(0, 0.1, 0.5);
     c.autoRotateSpeed = 0.9;
     // lights
     const hemi = this.hemi = new THREE.HemisphereLight(0xfff0dc, 0x2a1a10, 0.35); sc.add(hemi);
@@ -63,7 +63,7 @@ export class ChessScene {
     this.ray = new THREE.Raycaster(); this.plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     if (init.set) this.set = init.set; if (init.pcolor) this.scheme = init.pcolor; if (init.board) this.boardKey = init.board; if (init.custom) { this.custom = init.custom; this.customJson = JSON.stringify(init.custom); }
     if (init.labels) this.labels = init.labels; if (init.cinema !== undefined) this.cine = init.cinema; if (init.speed !== undefined) this.speed = init.speed;
-    this.autoFlat = init.flatHigh !== false; this.qualityReq = init.quality || 'high'; this.applyQuality(this.qualityReq); this.bgKey = null; this.kit = this.getKit(this.set, this.scheme);
+    this.qualityReq = init.quality || 'high'; this.applyQuality(this.qualityReq); this.bgKey = null; this.kit = this.getKit(this.set, this.scheme);
     this.ready = (async () => { await this.buildBoard(); await this.setBackground(init.bg || 'wood'); await this.ensureKit(); this.updateLegend(); this.flatIcons(this.kit); await this.precompile(); this.live = true; })();
     this.bindInput(); this.last = performance.now();
     new ResizeObserver(() => this.resize()).observe(canvas.parentElement || canvas); this.resize();
@@ -120,16 +120,14 @@ export class ChessScene {
     m.position.set(p.root.position.x - up * Math.sin(th), 0.05 + y * 0.4, p.root.position.z - up * Math.cos(th)); m.rotation.z = th; m.scale.setScalar(S); m.visible = p.root.visible;
   }
   detachIcon(p) { if (!p.icon) return; this.fx.remove(p.icon); p.icon.material.dispose(); p.icon = null; }
-  /** swap between the 3D pieces and the flat icons; chosen automatically from the camera angle (high angle = clear flat icons, low angle = real 3D) */
-  setFlat(on) {
-    if (this.is2D === on) return; this.is2D = on; if (on && this.legendGlows) for (const q of this.legendGlows) q.visible = false; if (this.legendMesh) this.legendMesh.visible = !on && this.labels === 'border';
+  /** '2d' = flat top-down board with clear piece icons, '3d' = the normal 3D board (default). Camera views are handled by resetCamera. */
+  setMode(mode) {
+    const on = mode === '2d'; if (this.is2D === on) return; this.is2D = on; const c = this.controls;
+    if (on && this.legendGlows) for (const q of this.legendGlows) q.visible = false;
+    if (this.legendMesh) this.legendMesh.visible = !on && this.labels === 'border';
     for (const p of this.all) { if (on) this.attachIcon(p); else this.detachIcon(p); p.content.visible = !on; if (p.base) p.base.visible = !on; }
-    this.poke && this.poke();
-  }
-  updateFlat() {
-    if (!this.autoFlat) { if (this.is2D) this.setFlat(false); return; }
-    const phi = this.controls.getPolarAngle(); if (!this.is2D && phi < 0.70) this.setFlat(true); else if (this.is2D && phi > 0.82) this.setFlat(false);
-    if (this.is2D) this.flatYaw = this.controls.getAzimuthalAngle();
+    c.enableRotate = !on; c.minPolarAngle = on ? 0.005 : 0.12; c.maxDistance = this.fitDist * (on ? 3.0 : 1.35);
+    this.camera.fov = on ? 24 : 54; this.camera.updateProjectionMatrix(); this.hideTags(); this.poke && this.poke();
   }
   /* ---------- name tags: float the piece's NAME above chosen pieces for a few seconds ---------- */
   tagTexture(name, color) {
@@ -197,7 +195,7 @@ export class ChessScene {
     const vf = 54 * Math.PI / 180, hf = 2 * Math.atan(Math.tan(vf / 2) * this.camera.aspect);
     const need = 4.55 / Math.tan(Math.min(hf, vf * 1.4) / 2);
     this.fitDist = Math.max(13, need);
-    this.controls.minDistance = this.fitDist * 0.5; this.controls.maxDistance = this.fitDist * 3.0;
+    this.controls.minDistance = this.fitDist * 0.5; this.controls.maxDistance = this.fitDist * (this.is2D ? 3.0 : 1.35);
     if (!this._fitted) { this._fitted = true; this.setRadius(this.fitDist); }
   }
   setRadius(r) { const o = this.camera.position.clone().sub(this.controls.target).setLength(r); this.camera.position.copy(this.controls.target).add(o); }
@@ -223,7 +221,7 @@ export class ChessScene {
   async rebuildPieces() {
     const tok = ++this.pieceTok, want = this.getKit(this.set, this.scheme); await this.ensureKit(this.set, this.scheme);
     if (tok !== this.pieceTok) return;
-    this.kit = want; this.labelCache = {}; this.updateLegend(); this.flatIcons(want); if (this.is2D) { this.is2D = false; }
+    this.kit = want; this.labelCache = {}; this.updateLegend(); this.flatIcons(want);
     const lay = [...this.pieces.values()].map(p => ({ type: p.type, color: p.color, sq: p.sq })); this.clearPieces(); for (const l of lay) this.spawn(l.type, l.color, l.sq);
   }
   async buildBoard() {
@@ -248,8 +246,8 @@ export class ChessScene {
     for (const [w, d, x, z] of [[8.16, 0.08, 0, -4.04], [8.16, 0.08, 0, 4.04], [0.08, 8.16, -4.04, 0], [0.08, 8.16, 4.04, 0]]) { const b = new THREE.Mesh(new THREE.BoxGeometry(w, 0.07, d), trim); b.position.set(x, 0.03, z); b.receiveShadow = true; g.add(b); }
   }
   /** apply any subset of style options; heavy parts are async (sliced) so the UI never freezes */
-  async setStyle({ board, pcolor, set, quality, speed, cinema, labels, bg, custom, flatHigh }) {
-    await this.ready; if (flatHigh !== undefined) this.autoFlat = flatHigh !== false;
+  async setStyle({ board, pcolor, set, quality, speed, cinema, labels, bg, custom }) {
+    await this.ready;
     const jobs = []; let boardChanged = false;
     if (speed !== undefined) this.speed = speed;
     if (cinema !== undefined) this.cine = cinema;
@@ -421,19 +419,18 @@ export class ChessScene {
   clearMarks() { this.ensureHl(); this.deselect(false); this.markLast(-1); this.markCheck(-1); this.showHint(-1); }
 
   /* ---------- camera ---------- */
-  /** looking straight down uses a narrow "telephoto" lens (square, undistorted board like a 2D app); low angles use the normal wide lens */
-  fovOf(phi) { const k = Math.min(1, Math.max(0, (phi - 0.45) / 0.5)), e = k * k * (3 - 2 * k); return 24 + (54 - 24) * e; }
   resetCamera(view, instant) {
-    const target = { white: [0, 0.03], black: [Math.PI, 0.03], whiteLow: [0, 0.95], blackLow: [Math.PI, 0.95], top: [this.controls.getAzimuthalAngle(), 0.14], side: [Math.PI / 2, 1.1] }[view] || [0, 0.03];
-    const t = this.controls.target, tz = target[1] < 0.5 ? 1.25 : 0.5, fit = this.fitDist || 22, K54 = Math.tan(27 * Math.PI / 180);
-    const app1 = fit * K54 * (target[1] < 0.5 ? 0.94 : 1);                                   // apparent size to keep (board width on screen)
-    const th0 = this.controls.getAzimuthalAngle(), ph0 = this.controls.getPolarAngle(), z0 = t.z, app0 = this.camera.position.distanceTo(t) * Math.tan(this.camera.fov * Math.PI / 360);
-    const dth = angDelta(th0, target[0]), set = e => { const ph = ph0 + (target[1] - ph0) * e, app = app0 + (app1 - app0) * e; t.z = z0 + (tz - z0) * e; this.setSph(th0 + dth * e, ph, app / Math.tan(this.fovOf(ph) * Math.PI / 360)); };
+    const two = this.is2D, fit = this.fitDist || 22, t = this.controls.target;
+    const target = two ? { white: [0, 0.03], black: [Math.PI, 0.03] }[view] || [this.controls.getAzimuthalAngle(), 0.03]
+      : { white: [0, 0.88], black: [Math.PI, 0.88], top: [this.controls.getAzimuthalAngle(), 0.14], side: [Math.PI / 2, 1.1] }[view] || [0, 0.88];
+    // 2D: narrow lens from far above (square, undistorted board) at the same on-screen size as the 3D board; looks slightly down the board so it sits clear of the bottom buttons
+    const r = two ? fit * Math.tan(27 * Math.PI / 180) / Math.tan(12 * Math.PI / 180) * 0.94 : fit, tz = two ? 1.25 : 0.5;
+    const th0 = this.controls.getAzimuthalAngle(), ph0 = this.controls.getPolarAngle(), r0 = this.camera.position.distanceTo(t), z0 = t.z, dth = angDelta(th0, target[0]);
+    const set = e => { t.z = z0 + (tz - z0) * e; this.setSph(th0 + dth * e, ph0 + (target[1] - ph0) * e, r0 + (r - r0) * e); };
     if (instant) { set(1); return; }
     this.tween(0.8, set, E.io);
   }
   setSph(theta, phi, r) {
-    const f = this.fovOf(phi); if (Math.abs(this.camera.fov - f) > 0.05) { this.camera.fov = f; this.camera.updateProjectionMatrix(); }
     const t = this.controls.target; this.camera.position.set(t.x + r * Math.sin(phi) * Math.sin(theta), t.y + r * Math.cos(phi), t.z + r * Math.sin(phi) * Math.cos(theta)); this.controls.update();
   }
   setMenuSpin(on) { this.menuSpin = on; this.controls.autoRotate = on; }
@@ -490,12 +487,8 @@ export class ChessScene {
     if (this.hl.hintB && this.hl.hintB.visible) { const o = 0.5 + 0.3 * Math.sin(this.t * 6); this.hl.hintA.material.opacity = o * 0.7; this.hl.hintB.material.opacity = o; }
     if (this.legendGlows) for (const q of this.legendGlows) if (q.visible) { const k = 1.1 + 0.15 * Math.sin(this.t * 6); q.scale.set(k, k, 1); }
     if (this.hl.sel && this.hl.sel.visible) this.hl.sel.material.opacity = 0.4 + 0.15 * Math.sin(this.t * 5);
-    { const c = this.controls, d0 = this.camera.position.distanceTo(c.target);   // lens follows the camera's tilt; the distance is adjusted so the board keeps the same size on screen
-      if (this._lastD === undefined || Math.abs(d0 - this._lastD) > 1e-3) this._app = d0 * Math.tan(this.camera.fov * Math.PI / 360);   // distance was changed by the player / move camera
-      const f = this.fovOf(c.getPolarAngle());
-      if (Math.abs(this.camera.fov - f) > 0.05) { this.camera.fov = f; this.camera.updateProjectionMatrix(); const nd = this._app / Math.tan(f * Math.PI / 360), dir = this.camera.position.clone().sub(c.target).normalize(); this.camera.position.copy(c.target).addScaledVector(dir, nd); }
-      this._lastD = this.camera.position.distanceTo(c.target); const extra = Math.max(0, this._lastD - (this.fitDist || 20)); this.scene.fog.near = (this.fogN || 26) + extra; this.scene.fog.far = (this.fogF || 62) + extra; }
-    this.updateFlat(); if (this.is2D) for (const p of this.all) this.syncIcon(p);
+    { const extra = Math.max(0, this.camera.position.distanceTo(this.controls.target) - (this.fitDist || 20)); this.scene.fog.near = (this.fogN || 26) + extra; this.scene.fog.far = (this.fogF || 62) + extra; }
+    if (this.is2D) { this.flatYaw = this.controls.getAzimuthalAngle(); for (const p of this.all) this.syncIcon(p); }
     this.updateTags(dt);
     if (this.bgFx) this.bgFx.update(dt, this.t);
     for (const p of this.all) if (p.base) { p.base.position.set(p.root.position.x, 0.002, p.root.position.z); p.base.scale.setScalar(p.root.scale.x); }

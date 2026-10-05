@@ -386,3 +386,9 @@ input{user-select:text;-webkit-user-select:text;font:inherit;color:inherit}
 .finder button i{font-style:normal;font-size:23px;line-height:26px;height:26px}
 .finder button span{font-size:9.5px;font-weight:800;letter-spacing:.02em;color:var(--gold1);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .finder button:active{background:rgba(243,210,122,.3);transform:scale(.95)}
+
+/* ---- 2D / 3D switch ---- */
+.vm{display:flex;flex:none;background:rgba(18,12,8,.78);border:1px solid #5a4028;border-radius:11px;padding:2px;gap:2px;backdrop-filter:blur(6px);pointer-events:auto}
+.vm button{padding:4px 10px;border-radius:8px;font-size:12px;font-weight:900;color:var(--mut);background:transparent;letter-spacing:.04em}
+.vm button.on{background:linear-gradient(#f6d98a,var(--gold2));color:#2a1604}
+#hud.v2d #btnView{display:none}
